@@ -72,7 +72,10 @@
         <select id="fRes"><option value="">Tous résultats</option><option value="win">✓ réussis</option><option value="loss">✗ ratés</option></select>
         <select id="fVote"><option value="">Tous</option><option value="none">Pas encore jugés</option><option value="yes">Jugés « oui »</option><option value="no">Jugés « non »</option></select>
       </div>
-      <select id="fAge"><option value="">Toute la période</option><option value="3600">Dernière heure</option><option value="21600">6 dernières heures</option><option value="86400">24 dernières heures</option><option value="259200">3 derniers jours</option></select>
+      <div class="row">
+        <select id="fAge"><option value="">Toute la période</option><option value="3600">Dernière heure</option><option value="21600">6 dernières heures</option><option value="86400">24 dernières heures</option><option value="259200">3 derniers jours</option></select>
+        <select id="fH4"><option value="">4h : tous</option><option value="aligned">4h : alignés</option><option value="notaligned">4h : non alignés</option><option value="edge">4h : au bord (haut/bas)</option><option value="mid">4h : au milieu</option><option value="none">4h : pas de range</option></select>
+      </div>
       <div class="sum" id="sum"></div>
     </div>
     <div class="list" id="list"></div>
@@ -92,6 +95,7 @@
       <span><span class="sw" style="background:#8b5cf6"></span>petit range</span>
       <span><span class="sw" style="background:#16a34a"></span>objectif (bord opposé)</span>
       <span><span class="sw" style="background:#dc2626"></span>invalidation</span>
+      <span><span class="sw" style="background:#ef4444;height:1px;border-top:1px dashed #ef4444"></span>range 4h</span>
       <span>Réussi = objectif touché avant l'invalidation</span>
     </div>
   </main>
@@ -101,7 +105,7 @@
 const $ = s => document.querySelector(s);
 let SIG = [], STATUS = {}, NOW = 0, chart = null, chartKey = null, chartUpdated = null;
 const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
-const st = Object.assign({ tab: "live", tf: "", coin: "", res: "", vote: "", age: "" }, LS.get("rr-filters", {}), { sel: null });
+const st = Object.assign({ tab: "live", tf: "", coin: "", res: "", vote: "", age: "", h4: "" }, LS.get("rr-filters", {}), { sel: null });
 if (st.res === "en cours") st.res = "";
 const seen = new Set(LS.get("rr-seen", []));
 let firstLoad = !LS.get("rr-seen", null);
@@ -151,8 +155,20 @@ function renderStatus() {
 function filtered() {
   const now = Date.now() / 1000;
   return SIG.filter(s => s.key === st.sel || ((!st.tf || s.tf === st.tf) && (!st.coin || s.coin === st.coin) && (st.tab === "live" ? s.out.result === "en cours" : s.out.result !== "en cours" && (!st.res || s.out.result === st.res))
-    && (!st.vote || (st.vote === "none" ? !s.vote : s.vote === st.vote)) && (!st.age || now - s.t <= +st.age)))
+    && (!st.vote || (st.vote === "none" ? !s.vote : s.vote === st.vote)) && (!st.age || now - s.t <= +st.age) && h4match(s)))
     .sort((a, b) => b.t - a.t);
+}
+const H4ZONE = { haut: "en haut", bas: "en bas", milieu: "au milieu", "au-dessus": "au-dessus", "en dessous": "en dessous" };
+function h4match(s) {
+  const h = s.h4, has = h && h.range;
+  return !st.h4 || (st.h4 === "aligned" ? has && h.aligned : st.h4 === "notaligned" ? has && !h.aligned
+    : st.h4 === "edge" ? has && ["haut", "bas"].includes(h.zone) : st.h4 === "mid" ? has && h.zone === "milieu" : !has);
+}
+function h4label(s) {
+  const h = s.h4;
+  if (!h) return "4h : —";
+  if (!h.range) return "pas de range 4h";
+  return `${H4ZONE[h.zone]} du range 4h${h.aligned ? " · aligné" : ""}`;
 }
 function renderList() {
   renderTabs();
@@ -163,13 +179,20 @@ function renderList() {
   document.title = (nNew ? `(${nNew}) ` : "") + "Range dans le range";
   $("#sum").innerHTML = `<b>${r.length}</b> signaux · ✓ <b>${w}</b> · ✗ <b>${l}</b>${w + l ? ` · réussite <b>${Math.round(w / (w + l) * 100)} %</b>` : ""}`
     + (vy.length ? `<br>Tes « oui » : ✓ ${vyw} · ✗ ${vyl}${vyw + vyl ? ` (${Math.round(vyw / (vyw + vyl) * 100)} %)` : ""}` : "")
+    + (() => {
+      const al = r.filter(s => s.h4?.aligned), aw = al.filter(s => s.out.result === "win").length, alo = al.filter(s => s.out.result === "loss").length;
+      const e4 = r.filter(s => s.h4?.out && s.h4.out.result !== "en cours"), e4w = e4.filter(s => s.h4.out.result === "win").length;
+      return (al.length ? `<br>Alignés 4h : ${al.length} · ✓ ${aw} · ✗ ${alo}${aw + alo ? ` (${Math.round(aw / (aw + alo) * 100)} %)` : ""}` : "")
+        + (e4.length ? `<br>Bord opposé 4h pris : ${e4w}/${e4.length} (${Math.round(e4w / e4.length * 100)} %)` : "");
+    })()
     + (nNew ? `<br><span style="color:var(--new)">${nNew} nouveau${nNew > 1 ? "x" : ""}</span>` : "");
   const now = Date.now() / 1000;
   $("#list").innerHTML = r.map(s => `<div class="it ${st.sel === s.key ? "sel" : ""}" data-key="${s.key}">
     <div><b>${s.coin}</b> ${s.tf} · <span class="${s.dir === "short" ? "loss" : "win"}">${s.dir}</span>${seen.has(s.key) ? "" : '<span class="badge-new">nouveau</span>'} ${s.vote === "yes" ? "👍" : s.vote === "no" ? "👎" : ""}</div>
     <div class="${RES[s.out.result][1]}">${RES[s.out.result][0]}</div>
     <div class="d">${dt(s.t)} · il y a ${ago(now - s.t)}</div>
-    <div class="d" style="text-align:right">petit range en ${s.side === "top" ? "haut" : "bas"}</div></div>`).join("")
+    <div class="d" style="text-align:right">petit range en ${s.side === "top" ? "haut" : "bas"}</div>
+    <div class="d" style="grid-column:1/-1">${s.h4?.aligned ? '<b style="color:var(--new)">4h aligné</b> · ' : ""}${h4label(s)}</div></div>`).join("")
     || `<div class="hint" style="padding:12px">Aucun signal avec ces filtres.${st.tab === "live" ? " Les nouveaux setups apparaîtront ici automatiquement ; ceux qui sont terminés sont dans l'onglet Historique." : ""}</div>`;
   return r;
 }
@@ -199,8 +222,10 @@ function renderHeader(s) {
     <div class="kv"><span>Direction</span><b class="${s.dir === "short" ? "loss" : "win"}">${s.dir.toUpperCase()} (petit range en ${s.side === "top" ? "haut" : "bas"})</b></div>
     <div class="kv"><span>Objectif · invalidation</span><b>${px(s.target)} · ${px(s.stop)}</b></div>
     <div class="kv"><span>Touches haut / bas</span><b>${s.touchesTop} / ${s.touchesBot}</b></div>
+    <div class="kv"><span>Range 4h</span><b${s.h4?.aligned ? ' style="color:var(--new)"' : ""}>${h4label(s)}</b>${s.h4?.out ? `<span>bord opposé 4h : <b class="${RES[s.h4.out.result][1]}">${RES[s.h4.out.result][0]}</b></span>` : ""}</div>
     <div class="kv"><span>Résultat</span><b class="${RES[s.out.result][1]}">${RES[s.out.result][0]}${s.out.result === "en cours" ? ` depuis ${s.out.bars} bougies` : ` en ${s.out.bars} bougies`}</b></div>
     <div class="right">
+      ${s.h4?.range ? `<label class="hint" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="zoom4h" ${LS.get("rr-zoom4h", false) ? "checked" : ""}>Voir le range 4h entier</label>` : ""}
       <button class="btn" id="refOne" title="Recharge les dernières bougies de ce graphique">↻ Rafraîchir</button>
       <span class="hint">C'est le motif ?</span>
       <button class="btn yes ${s.vote === "yes" ? "on" : ""}" data-v="yes">Oui</button>
@@ -208,6 +233,7 @@ function renderHeader(s) {
     </div>`;
   $("#hdr .right").onclick = e => { const b = e.target.closest("button[data-v]"); if (b) vote(s, b.dataset.v); };
   $("#refOne").onclick = () => refreshOne(s.key);
+  if ($("#zoom4h")) $("#zoom4h").onchange = e => { LS.set("rr-zoom4h", e.target.checked); select(s.key); };
 }
 async function vote(s, v) {
   const nv = s.vote === v ? null : v;
@@ -236,7 +262,9 @@ function draw(s, bars, keepView) {
     grid: { vertLines: { color: dark ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: dark ? "#1a1f27" : "#f0f1f4" } },
     timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 }, crosshair: { mode: 0 },
   });
-  const ser = chart.addBarSeries({ upColor: "#16a34a", downColor: dark ? "#e5e7eb" : "#111827", thinBars: false, openVisible: true });
+  const p0 = bars[bars.length - 1][4], prec = p0 >= 1000 ? 1 : p0 >= 100 ? 2 : p0 >= 1 ? 4 : p0 >= 0.01 ? 5 : 7;
+  const ser = chart.addBarSeries({ upColor: "#16a34a", downColor: dark ? "#e5e7eb" : "#111827", thinBars: false, openVisible: true,
+    priceFormat: { type: "price", precision: prec, minMove: Math.pow(10, -prec) } });
   ser.setData(bars.map(b => ({ time: tz(b[0]), open: b[1], high: b[2], low: b[3], close: b[4] })));
   const seg = (t0, t1, p, color, w = 2, style = 0) => {
     if (t1 <= t0) return;
@@ -248,6 +276,14 @@ function draw(s, bars, keepView) {
   seg(s.tStart, tEnd, s.H, "#f59e0b"); seg(s.tStart, tEnd, s.L, "#f59e0b");
   seg(s.tInner, s.t, s.ih, "#8b5cf6"); seg(s.tInner, s.t, s.il, "#8b5cf6");
   seg(s.t, tEnd, s.target, "#16a34a", 1, 2); seg(s.t, tEnd, s.stop, "#dc2626", 1, 2);
+  if (s.h4?.range) {
+    if (LS.get("rr-zoom4h", false)) {
+      // lignes « réelles » : le graphique dézoome pour montrer tout le range 4h
+      seg(bars[0][0], last, s.h4.H, "#ef4444", 1, 2); seg(bars[0][0], last, s.h4.L, "#ef4444", 1, 2);
+    }
+    ser.createPriceLine({ price: s.h4.H, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "4h haut" });
+    ser.createPriceLine({ price: s.h4.L, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "4h bas" });
+  }
   ser.setMarkers([
     { time: tz(s.t), position: s.dir === "short" ? "aboveBar" : "belowBar", color: "#2563eb", shape: s.dir === "short" ? "arrowDown" : "arrowUp", text: "signal" },
     ...(s.out.t ? [{ time: tz(s.out.t), position: "inBar", color: s.out.result === "win" ? "#16a34a" : "#dc2626", shape: "circle", text: s.out.result === "win" ? "✓" : "✗" }] : []),
@@ -256,11 +292,11 @@ function draw(s, bars, keepView) {
 }
 
 // ---------- contrôles ----------
-for (const [id, k] of [["#fTf", "tf"], ["#fCoin", "coin"], ["#fRes", "res"], ["#fVote", "vote"], ["#fAge", "age"]]) {
+for (const [id, k] of [["#fTf", "tf"], ["#fCoin", "coin"], ["#fRes", "res"], ["#fVote", "vote"], ["#fAge", "age"], ["#fH4", "h4"]]) {
   $(id).value = st[k];
   $(id).onchange = e => { st[k] = e.target.value; saveFilters(); refresh(); };
 }
-function saveFilters() { LS.set("rr-filters", { tab: st.tab, tf: st.tf, coin: st.coin, res: st.res, vote: st.vote, age: st.age }); }
+function saveFilters() { LS.set("rr-filters", { tab: st.tab, tf: st.tf, coin: st.coin, res: st.res, vote: st.vote, age: st.age, h4: st.h4 }); }
 function renderTabs() {
   const live = SIG.filter(s => s.out.result === "en cours").length;
   $("#tabs").innerHTML = `<button data-v="live" class="${st.tab === "live" ? "on" : ""}">En cours<span class="n">${live}</span></button>`
