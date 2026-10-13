@@ -5,8 +5,8 @@
 - Garde les signaux et tes votes Oui/Non dans une base SQLite (DATA_DIR/ranges.db).
 - Sert l'interface sur http://localhost:8000 (mot de passe : APP_PASSWORD).
 
-Variables d'environnement : PORT, APP_PASSWORD, DATA_DIR, COINS (nb de coins, 30), TFS ("5m,15m"),
-SCAN_EVERY_MIN (5), BACKFILL_DAYS (2, au premier démarrage), KEEP_DAYS (30).
+Variables d'environnement : PORT, APP_PASSWORD, DATA_DIR, COINS (nb de coins, 30),
+TFS ("5m,15m,4h"), SCAN_EVERY_MIN (5), BACKFILL_DAYS (2, au premier démarrage ; 21 jours pour le 4h), KEEP_DAYS (30).
 """
 import base64, hmac, json, os, sqlite3, threading, time, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,11 +19,20 @@ PORT = int(os.environ.get("PORT", 8000))
 PASSWORD = os.environ.get("APP_PASSWORD", "")
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(ROOT, "data"))
 N_COINS = int(os.environ.get("COINS", 30))
-TFS = os.environ.get("TFS", "5m,15m").split(",")
+TFS = os.environ.get("TFS", "5m,15m,4h").split(",")
 EVERY = int(os.environ.get("SCAN_EVERY_MIN", 5)) * 60
 BACKFILL_DAYS = float(os.environ.get("BACKFILL_DAYS", 2))
 KEEP_DAYS = float(os.environ.get("KEEP_DAYS", 30))
-RESCAN_DAYS = 1.0  # à chaque scan on rejoue les dernières 24 h (les signaux en cours sont mis à jour)
+
+
+def rescan_days(tf):
+    """Fenêtre rejouée à chaque scan : assez longue pour suivre un signal jusqu'au bout (outcome_bars bougies).
+    5m → 1 jour, 15m → 2 jours, 4h → 21 jours."""
+    return max(1.0, round(D.P["outcome_bars"] * D.TF_MS[tf] / 86400e3 + 0.5))
+
+
+def backfill_days(tf):
+    return max(BACKFILL_DAYS, rescan_days(tf))
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -73,8 +82,7 @@ def upsert(sig, chart, allow_new):
     now = int(time.time())
     row = q("SELECT key, result, data FROM signals WHERE key=?", (sig["key"],), one=True)
     if row:
-        missing_h4 = "h4" in sig and '"h4"' not in row["data"]  # signal enregistré avant l'ajout du contexte 4h
-        if row["result"] == "en cours" or sig["out"]["result"] != row["result"] or missing_h4:
+        if row["result"] == "en cours" or sig["out"]["result"] != row["result"]:
             q("UPDATE signals SET result=?, data=?, chart=?, updated_at=? WHERE key=?",
               (sig["out"]["result"], json.dumps(sig), json.dumps(chart), now, sig["key"]))
         return False
@@ -130,28 +138,7 @@ def coins_to_scan():
     return list(top_cache["coins"])
 
 
-def get_h4(coin):
-    """Bougies 4h du coin (rechargées seulement quand une nouvelle bougie 4h a clôturé)."""
-    cached = series.get((coin, "4h"))
-    if cached and time.time() < cached[-1]["t"] + 2 * 14400:
-        return cached
-    return get_bars(coin, "4h", 10)
-
-
-def update_h4_outcomes(h4map):
-    """Le résultat 4h se joue sur 48 h : on le met à jour même pour les signaux 5m/15m déjà terminés."""
-    for r in q("SELECT key, coin, tf, data FROM signals WHERE t > ?", (int(time.time() - 3 * 86400),)):
-        sig = json.loads(r["data"])
-        h = sig.get("h4")
-        if not h or not h.get("out") or h["out"]["result"] != "en cours" or r["coin"] not in h4map:
-            continue
-        new = D.context_4h(h4map[r["coin"]], sig["t"] + D.TF_MS[r["tf"]] / 1000, sig["price"], sig["dir"])
-        if new and new != h:
-            sig["h4"] = new
-            q("UPDATE signals SET data=?, updated_at=? WHERE key=?", (json.dumps(sig), int(time.time()), r["key"]))
-
-
-def scan_series(coin, tf, days, new_since, force=False, h4=None):
+def scan_series(coin, tf, days, new_since, force=False):
     """Rejoue la détection sur une série ; un signal n'est AJOUTÉ que s'il est récent (pas un ancien qui réapparaît
     parce que la fenêtre a glissé)."""
     cached = series.get((coin, tf))
@@ -162,11 +149,10 @@ def scan_series(coin, tf, days, new_since, force=False, h4=None):
     if len(bars) < 60:
         return 0
     new = 0
-    if h4 is None:
-        h4 = get_h4(coin)
     for d in D.scan(bars, time.time() - days * 86400):
-        sig, chart = D.build_signal(bars, d, coin, tf, h4)
-        new += upsert(sig, chart, allow_new=sig["t"] >= new_since)
+        sig, chart = D.build_signal(bars, d, coin, tf)
+        # on compare la CLÔTURE de la bougie du signal (une bougie 4h ouvre 4 h avant d'être jugée)
+        new += upsert(sig, chart, allow_new=sig["t"] + tf_s >= new_since)
     return new
 
 
@@ -176,30 +162,25 @@ def run_scan():
     t0 = time.time()
     status.update(running=True, error=None)
     try:
-        first = meta_get("lastScanAt") is None
-        days = BACKFILL_DAYS if first else RESCAN_DAYS
-        # nouveaux signaux acceptés : ceux postérieurs au dernier scan (moins une marge de 2 bougies 15m)
-        new_since = 0 if first else meta_get("lastScanAt") - 1800
         coins = coins_to_scan()
         # on garde aussi les coins qui ont un signal en cours, même s'ils sortent du top
         for r in q("SELECT DISTINCT coin FROM signals WHERE result='en cours'"):
             if r["coin"] not in coins:
                 coins.append(r["coin"])
         status["coins"] = coins
-        h4map = {}
-        for coin in coins:
-            try:
-                h4map[coin] = get_h4(coin)
-            except Exception as e:
-                print(f"4h {coin}: {e}", flush=True)
         new = 0
         for tf in TFS:
+            # chaque timeframe a son propre historique : un timeframe ajouté plus tard (ex. 4h) est rattrapé
+            last = meta_get(f"lastScanAt:{tf}")
+            days = backfill_days(tf) if last is None else rescan_days(tf)
+            # nouveaux signaux acceptés : ceux clôturés après le dernier scan (marge de 30 min)
+            new_since = 0 if last is None else last - 1800
             for coin in coins:
                 try:
-                    new += scan_series(coin, tf, days, new_since, h4=h4map.get(coin) or [])
+                    new += scan_series(coin, tf, days, new_since)
                 except Exception as e:
                     print(f"scan {coin} {tf}: {e}", flush=True)
-        update_h4_outcomes(h4map)
+            meta_set(f"lastScanAt:{tf}", int(t0))
         q("DELETE FROM signals WHERE t < ?", (int(time.time() - KEEP_DAYS * 86400),))
         meta_set("lastScanAt", int(t0))
         status.update(lastAt=int(t0), lastDuration=round(time.time() - t0, 1), lastNew=new)
@@ -226,7 +207,7 @@ def refresh_one(key):
     row = q("SELECT coin, tf FROM signals WHERE key=?", (key,), one=True)
     if not row:
         return None
-    scan_series(row["coin"], row["tf"], RESCAN_DAYS, new_since=time.time() - 1800, force=True)
+    scan_series(row["coin"], row["tf"], rescan_days(row["tf"]), new_since=time.time() - 1800, force=True)
     return q("SELECT * FROM signals WHERE key=?", (key,), one=True)
 
 
