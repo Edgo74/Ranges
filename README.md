@@ -1,13 +1,17 @@
-# Range dans le range — détecteur live
+# Ranges — graphiques multi-timeframes Hyperliquid
 
-Repère sur Hyperliquid un **range serré** dans lequel se forme un **petit range collé à un bord**
-(petit range en haut → le prix va souvent chercher le bas, et inversement).
+Outil de recherche visuelle des ranges : pour chaque coin, **4 graphiques côte à côte (15 min, 1 H, 4 H, 1 D)**.
 
-- Scan automatique toutes les 5 minutes, juste après la clôture des bougies (5m, 15m et 4h, 30 coins Hyperliquid avec le plus de volume sur 24 h).
-- Interface : liste des signaux (en cours / réussis / ratés), graphique en barres OHLC, boutons **Oui / Non**.
-- Tes jugements sont enregistrés sur le serveur ; « Exporter jugements » télécharge un fichier avec les signaux
-  et leurs graphiques, pour affiner la détection.
-- ↻ Rafraîchir (un graphique) et « Tout rafraîchir » (relance le scan).
+- À gauche : les **30 coins avec le plus de volume sur 24 h sur Hyperliquid** (perps tradables uniquement),
+  avec prix et variation ; la recherche couvre tous les perps Hyperliquid.
+- Vue **Barres** (OHLC) ou **Bougies**, au choix (touche B).
+- Glisser un graphique vers la gauche charge l'historique plus ancien (jusqu'aux 5000 dernières bougies
+  que garde Hyperliquid par timeframe).
+- Mise à jour en temps réel (WebSocket Hyperliquid).
+- Raccourcis : ↑ ↓ changer de coin · 1–4 agrandir un graphique · Échap revenir à la grille.
+
+Les bougies sont chargées directement par le navigateur depuis l'API publique Hyperliquid ;
+le serveur ne fait que servir la page derrière un mot de passe.
 
 ## Lancer en local
 
@@ -15,35 +19,10 @@ Repère sur Hyperliquid un **range serré** dans lequel se forme un **petit rang
 python3 server.py            # http://localhost:8000
 ```
 
-Aucune dépendance à installer (Python 3.9+). Pour protéger par mot de passe : `APP_PASSWORD=... python3 server.py`.
+Aucune dépendance (Python 3.9+). Mot de passe : `APP_PASSWORD=... python3 server.py`.
 
-## Déployer sur Railway
+## Railway
 
-1. Pousse ce dossier sur un repo GitHub **privé**.
-2. Railway → New Project → Deploy from GitHub repo.
-3. Dans le service : **Add Volume** monté sur `/data`.
-4. Variables : `APP_PASSWORD` (mot de passe de l'interface) et `DATA_DIR=/data`.
-5. Settings → Networking → **Generate Domain**.
-6. Vérifie que **App Sleeping / Serverless est désactivé** (sinon le scan s'arrête quand personne ne regarde).
+Déployé depuis ce repo. Variable utile : `APP_PASSWORD`. Plus besoin de volume ni de `DATA_DIR`.
 
-Au premier démarrage, le serveur rattrape les 2 derniers jours (~3 min), puis scanne toutes les 5 minutes.
-
-## Réglages
-
-| Variable | Défaut | Rôle |
-|---|---|---|
-| `APP_PASSWORD` | (vide) | mot de passe de l'interface — obligatoire en ligne |
-| `DATA_DIR` | `./data` | où est stockée la base (signaux + jugements) |
-| `COINS` | `30` | nombre de coins (les plus gros volumes) |
-| `TFS` | `5m,15m,4h` | timeframes scannés (le 4h n'est rescanné qu'à chaque clôture de bougie 4h) |
-| `SCAN_EVERY_MIN` | `5` | fréquence du scan |
-| `BACKFILL_DAYS` | `2` | historique rattrapé au premier démarrage |
-| `KEEP_DAYS` | `30` | durée de conservation des signaux |
-
-Les paramètres du motif (touches, tolérances, tailles des ranges) sont en haut de `detect.py`.
-
-## Script ponctuel (sans serveur)
-
-```bash
-python3 detect.py --days 3 --only AVAX,BTC --tf 15m   # puis ouvrir index.html
-```
+L'ancien détecteur automatique de signaux est dans l'historique Git (commit `cefee1e`).

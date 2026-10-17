@@ -3,297 +3,275 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Range dans le range</title>
+<title>Ranges · multi-timeframes</title>
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-  :root { --bg:#ffffff; --panel:#f6f7f9; --border:#e3e6eb; --text:#16191e; --muted:#6b7380; --green:#15803d; --red:#b91c1c; --amber:#b45309; --blue:#2563eb; --new:#7c3aed; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --panel:#161a20; --border:#262c36; --text:#e2e6ec; --muted:#7d8794; --green:#4ade80; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa; --new:#a78bfa; } }
+  :root { --bg:#ffffff; --panel:#f6f7f9; --border:#e3e6eb; --text:#16191e; --muted:#6b7380; --green:#15803d; --red:#b91c1c; --blue:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --panel:#161a20; --border:#262c36; --text:#e2e6ec; --muted:#7d8794; --green:#4ade80; --red:#f87171; --blue:#60a5fa; } }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
-  .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
   aside { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
-  .f { padding: 12px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); }
-  select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .sum { font-size: 12px; color: var(--muted); } .sum b { color: var(--text); }
-  .scan { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .scan .grow { flex: 1; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
-  .dot.busy { background: var(--amber); animation: pulse 1s infinite; }
-  .dot.err { background: var(--red); }
-  @keyframes pulse { 50% { opacity: .3; } }
-  .list { overflow-y: auto; flex: 1; }
-  .tabs { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
-  .tabs button { flex: 1; border: 0; background: none; color: var(--muted); padding: 6px; border-radius: 5px; cursor: pointer; font: inherit; font-weight: 600; }
-  .tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
-  .tabs .n { font-weight: 400; color: var(--muted); margin-left: 4px; }
-  .it { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px; }
-  .it:hover { background: var(--bg); } .it.sel { box-shadow: inset 3px 0 0 var(--blue); background: var(--bg); }
-  .it .d { color: var(--muted); font-size: 11px; }
-  .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: var(--new); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
-  .win { color: var(--green); } .loss { color: var(--red); } .open { color: var(--amber); }
-  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 16px; }
-  .kv span { display: block; font-size: 11px; color: var(--muted); } .kv b { font-variant-numeric: tabular-nums; }
-  #chart { flex: 1; min-height: 300px; position: relative; }
-  .right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
-  .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
-  .btn:disabled { opacity: .5; cursor: wait; }
-  .btn.sm { padding: 4px 8px; font-size: 12px; }
-  .btn.on.yes { background: #dcfce7; border-color: var(--green); color: #14532d; }
-  .btn.on.no { background: #fee2e2; border-color: var(--red); color: #7f1d1d; }
-  .legend { padding: 6px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); display: flex; gap: 16px; flex-wrap: wrap; }
-  .sw { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 4px; }
+  .search { padding: 10px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+  input { width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
   .hint { font-size: 11px; color: var(--muted); }
-  .empty { display: grid; place-items: center; height: 100%; color: var(--muted); padding: 20px; text-align: center; }
+  .list { overflow-y: auto; flex: 1; }
+  .coin { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .coin:hover { background: var(--bg); }
+  .coin.sel { background: var(--bg); box-shadow: inset 3px 0 0 var(--blue); }
+  .coin .n { font-weight: 600; }
+  .coin .d { font-size: 11px; color: var(--muted); }
+  .coin .d.up { color: var(--green); } .coin .d.down { color: var(--red); }
+  .up { color: var(--green); } .down { color: var(--red); }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  header { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 17px; }
+  .px { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .grow { flex: 1; }
+  .seg { display: flex; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+  .seg button { border: 0; background: none; color: var(--muted); padding: 5px 12px; border-radius: 5px; cursor: pointer; font: inherit; }
+  .seg button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .live { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--green); }
+  .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--border); min-height: 0; }
+  .grid.solo { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .grid.solo .cell:not(.big) { display: none; }
+  .cell { position: relative; background: var(--bg); min-height: 0; min-width: 0; }
+  .cell .lbl { position: absolute; top: 6px; left: 8px; z-index: 3; display: flex; gap: 8px; align-items: center; font-weight: 700; pointer-events: none; }
+  .cell .lbl button { pointer-events: auto; border: 1px solid var(--border); background: var(--panel); color: var(--muted); border-radius: 4px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
+  .cell .lbl .load { font-weight: 400; font-size: 11px; color: var(--muted); }
+  .cell .ch { position: absolute; inset: 0; }
   @media (max-width: 800px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
-    aside { border-right: 0; border-bottom: 1px solid var(--border); }
-    .list { max-height: 40vh; }
-    #chart { height: 60vh; flex: none; }
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
+    aside { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    .grid { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: 70vh; }
+    .grid.solo { grid-template-rows: none; grid-auto-rows: 80vh; }
   }
 </style>
 </head>
 <body>
 <div class="app">
   <aside>
-    <div class="f">
-      <div class="scan">
-        <span class="dot" id="dot"></span><span id="scanTxt">Chargement…</span><span class="grow"></span>
-        <button class="btn sm" id="scanAll" title="Relance tout de suite le scan de tous les coins">Tout rafraîchir</button>
-      </div>
-      <div class="tabs" id="tabs"><button data-v="live" class="on">En cours</button><button data-v="hist">Historique</button></div>
-      <div class="row">
-        <select id="fTf"><option value="">Tous TF</option></select>
-        <select id="fCoin"><option value="">Tous coins</option></select>
-      </div>
-      <div class="row">
-        <select id="fRes"><option value="">Tous résultats</option><option value="win">✓ réussis</option><option value="loss">✗ ratés</option></select>
-        <select id="fVote"><option value="">Tous</option><option value="none">Pas encore jugés</option><option value="yes">Jugés « oui »</option><option value="no">Jugés « non »</option></select>
-      </div>
-      <select id="fAge"><option value="">Toute la période</option><option value="3600">Dernière heure</option><option value="21600">6 dernières heures</option><option value="86400">24 dernières heures</option><option value="259200">3 derniers jours</option><option value="604800">7 derniers jours</option></select>
-      <div class="sum" id="sum"></div>
+    <div class="search">
+      <input id="q" placeholder="Chercher un coin (tous les perps Hyperliquid)…" autocomplete="off">
+      <div class="hint" id="listHint">Top 30 par volume 24 h sur Hyperliquid</div>
     </div>
     <div class="list" id="list"></div>
-    <div class="f" style="border-top:1px solid var(--border);border-bottom:0">
-      <div class="row">
-        <a class="btn" href="/api/export" style="text-align:center;text-decoration:none">Exporter jugements</a>
-        <button class="btn" id="imp">Importer jugements</button>
-      </div>
-      <div class="hint">← → : signal précédent / suivant · O : c'est le motif · N : ce n'est pas le motif</div>
+    <div class="search" style="border-top:1px solid var(--border);border-bottom:0">
+      <div class="hint">↑ ↓ changer de coin · 1–4 agrandir un graphique · Échap grille · B barres/bougies · glisse vers la gauche pour l'historique</div>
     </div>
   </aside>
   <main>
-    <header id="hdr"></header>
-    <div id="chart"><div class="empty">Sélectionne un signal</div></div>
-    <div class="legend">
-      <span><span class="sw" style="background:#f59e0b"></span>grand range</span>
-      <span><span class="sw" style="background:#8b5cf6"></span>petit range</span>
-      <span><span class="sw" style="background:#16a34a"></span>objectif (bord opposé)</span>
-      <span><span class="sw" style="background:#dc2626"></span>invalidation</span>
-      <span>Réussi = objectif touché avant l'invalidation</span>
-    </div>
+    <header>
+      <h1 id="title">—</h1>
+      <span class="px" id="price"></span>
+      <span id="chg"></span>
+      <span class="grow"></span>
+      <span class="live"><span class="dot" id="wsDot"></span><span id="wsTxt">connexion…</span></span>
+      <div class="seg" id="mode"><button data-v="bars">Barres</button><button data-v="candles">Bougies</button></div>
+    </header>
+    <div class="grid" id="grid"></div>
   </main>
 </div>
-<input type="file" id="impFile" accept="application/json" hidden>
 <script>
+const API = "https://api.hyperliquid.xyz/info", WS = "wss://api.hyperliquid.xyz/ws";
+const TFS = [{ tf: "15m", label: "15 min", sec: 900 }, { tf: "1h", label: "1 H", sec: 3600 }, { tf: "4h", label: "4 H", sec: 14400 }, { tf: "1d", label: "1 D", sec: 86400 }];
+const PAGE = 1000;      // bougies chargées à la fois (Hyperliquid garde les 5000 dernières par timeframe)
+const SHOW = 220;       // bougies visibles au départ
 const $ = s => document.querySelector(s);
-let SIG = [], STATUS = {}, NOW = 0, chart = null, chartKey = null, chartUpdated = null;
 const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
-const st = Object.assign({ tab: "live", tf: "", coin: "", res: "", vote: "", age: "" }, LS.get("rr-filters", {}), { sel: null });
-if (st.res === "en cours") st.res = "";
-const seen = new Set(LS.get("rr-seen", []));
-let firstLoad = !LS.get("rr-seen", null);
+const st = { coin: LS.get("mtf-coin", "BTC"), mode: LS.get("mtf-mode", "bars"), solo: null, q: "" };
+let markets = [], topCoins = [], panes = {}, ws = null, wsCoin = null;
 
-const tz = t => t - new Date(t * 1000).getTimezoneOffset() * 60;
-const dt = t => new Date(t * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const ago = s => { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 86400 ? `${Math.floor(s / 3600)} h ${String(Math.round(s % 3600 / 60)).padStart(2, "0")}` : `${Math.round(s / 86400)} j`; };
-const RES = { win: ["✓ réussi", "win"], loss: ["✗ raté", "loss"], "en cours": ["en cours", "open"], ambigu: ["ambigu", "open"] };
-const px = v => Number(v).toPrecision(6).replace(/\.?0+$/, "");
+const post = body => fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
+const tzOff = t => -new Date(t * 1000).getTimezoneOffset() * 60;   // décalage heure locale (s)
+const fmtPx = v => v >= 1000 ? v.toLocaleString("fr-FR", { maximumFractionDigits: 1 }) : v >= 1 ? v.toLocaleString("fr-FR", { maximumFractionDigits: 4 }) : v.toPrecision(4);
+const fmtVol = v => v >= 1e9 ? (v / 1e9).toFixed(2) + " Md$" : v >= 1e6 ? (v / 1e6).toFixed(1) + " M$" : (v / 1e3).toFixed(0) + " k$";
+const prec = p => p >= 1000 ? 1 : p >= 100 ? 2 : p >= 1 ? 4 : p >= 0.01 ? 5 : 7;
+const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
 
-async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error("Erreur " + r.status);
-  return r.json();
-}
-
-// ---------- données ----------
-async function load() {
+// ---------- liste des coins ----------
+async function loadMarkets() {
   try {
-    const d = await api("/api/signals");
-    SIG = d.signals; STATUS = d.status; NOW = d.now;
-    if (firstLoad) { SIG.forEach(s => seen.add(s.key)); LS.set("rr-seen", [...seen]); firstLoad = false; }
-    fillSelect("#fTf", [...new Set(SIG.map(s => s.tf))].sort(), st.tf);
-    fillSelect("#fCoin", [...new Set(SIG.map(s => s.coin))].sort(), st.coin);
-    renderStatus(); refresh();
-    const s = SIG.find(x => x.key === st.sel);
-    if (s && s.key === chartKey && s.updatedAt !== chartUpdated) select(s.key, true);
-  } catch (e) {
-    $("#dot").className = "dot err"; $("#scanTxt").textContent = "serveur injoignable";
-  }
-}
-function fillSelect(sel, values, cur) {
-  const el = $(sel), first = el.options[0].outerHTML;
-  el.innerHTML = first + values.map(v => `<option ${v === cur ? "selected" : ""}>${v}</option>`).join("");
-}
-function renderStatus() {
-  const now = Date.now() / 1000;
-  $("#dot").className = "dot" + (STATUS.running ? " busy" : STATUS.error ? " err" : "");
-  $("#scanAll").disabled = !!STATUS.running;
-  $("#scanTxt").textContent = STATUS.running ? "Scan en cours…"
-    : STATUS.error ? "Erreur : " + STATUS.error
-    : STATUS.lastAt ? `Scan il y a ${ago(now - STATUS.lastAt)}${STATUS.nextAt ? ` · prochain dans ${ago(STATUS.nextAt - now)}` : ""}` : "Premier scan…";
-  $("#scanTxt").title = STATUS.coins?.length ? `${STATUS.coins.length} coins : ${STATUS.coins.join(", ")}` : "";
-}
-
-// ---------- liste ----------
-function filtered() {
-  const now = Date.now() / 1000;
-  return SIG.filter(s => s.key === st.sel || ((!st.tf || s.tf === st.tf) && (!st.coin || s.coin === st.coin) && (st.tab === "live" ? s.out.result === "en cours" : s.out.result !== "en cours" && (!st.res || s.out.result === st.res))
-    && (!st.vote || (st.vote === "none" ? !s.vote : s.vote === st.vote)) && (!st.age || now - s.t <= +st.age)))
-    .sort((a, b) => b.t - a.t);
+    const [meta, ctx] = await post({ type: "metaAndAssetCtxs" });
+    markets = meta.universe.map((u, i) => ({ coin: u.name, delisted: !!u.isDelisted, px: +ctx[i].markPx, prev: +ctx[i].prevDayPx, vol: +ctx[i].dayNtlVlm }))
+      .filter(m => !m.delisted && m.px > 0);
+    topCoins = [...markets].sort((a, b) => b.vol - a.vol).slice(0, 30);
+    renderList(); renderHeader();
+  } catch (e) { $("#listHint").textContent = "Hyperliquid injoignable, nouvel essai…"; }
 }
 function renderList() {
-  renderTabs();
-  const r = filtered();
-  const w = r.filter(s => s.out.result === "win").length, l = r.filter(s => s.out.result === "loss").length;
-  const vy = r.filter(s => s.vote === "yes"), vyw = vy.filter(s => s.out.result === "win").length, vyl = vy.filter(s => s.out.result === "loss").length;
-  const nNew = SIG.filter(s => !seen.has(s.key)).length;
-  document.title = (nNew ? `(${nNew}) ` : "") + "Range dans le range";
-  $("#sum").innerHTML = `<b>${r.length}</b> signaux · ✓ <b>${w}</b> · ✗ <b>${l}</b>${w + l ? ` · réussite <b>${Math.round(w / (w + l) * 100)} %</b>` : ""}`
-    + (vy.length ? `<br>Tes « oui » : ✓ ${vyw} · ✗ ${vyl}${vyw + vyl ? ` (${Math.round(vyw / (vyw + vyl) * 100)} %)` : ""}` : "")
-    + (nNew ? `<br><span style="color:var(--new)">${nNew} nouveau${nNew > 1 ? "x" : ""}</span>` : "");
-  const now = Date.now() / 1000;
-  $("#list").innerHTML = r.map(s => `<div class="it ${st.sel === s.key ? "sel" : ""}" data-key="${s.key}">
-    <div><b>${s.coin}</b> ${s.tf} · <span class="${s.dir === "short" ? "loss" : "win"}">${s.dir}</span>${seen.has(s.key) ? "" : '<span class="badge-new">nouveau</span>'} ${s.vote === "yes" ? "👍" : s.vote === "no" ? "👎" : ""}</div>
-    <div class="${RES[s.out.result][1]}">${RES[s.out.result][0]}</div>
-    <div class="d">${dt(s.t)} · il y a ${ago(now - s.t)}</div>
-    <div class="d" style="text-align:right">petit range en ${s.side === "top" ? "haut" : "bas"}</div></div>`).join("")
-    || `<div class="hint" style="padding:12px">Aucun signal avec ces filtres.${st.tab === "live" ? " Les nouveaux setups apparaîtront ici automatiquement ; ceux qui sont terminés sont dans l'onglet Historique." : ""}</div>`;
-  return r;
+  const q = st.q.trim().toUpperCase();
+  const rows = q ? markets.filter(m => m.coin.toUpperCase().includes(q)).sort((a, b) => b.vol - a.vol) : topCoins;
+  $("#listHint").textContent = q ? `${rows.length} résultat(s) sur ${markets.length} perps` : "Top 30 par volume 24 h sur Hyperliquid";
+  const scroll = $("#list").scrollTop;
+  $("#list").innerHTML = rows.map(m => {
+    const c = m.prev ? (m.px / m.prev - 1) * 100 : 0;
+    return `<div class="coin ${m.coin === st.coin ? "sel" : ""}" data-c="${m.coin}">
+      <span class="n">${m.coin}</span><span>${fmtPx(m.px)}</span>
+      <span class="d">vol ${fmtVol(m.vol)}</span><span class="d ${c >= 0 ? "up" : "down"}">${c >= 0 ? "+" : ""}${c.toFixed(2)} %</span></div>`;
+  }).join("") || '<div class="hint" style="padding:12px">Aucun coin</div>';
+  $("#list").scrollTop = scroll;
 }
-$("#list").onclick = e => { const it = e.target.closest(".it"); if (it) select(it.dataset.key); };
-function refresh() {
-  const r = renderList();
-  if (!r.find(s => s.key === st.sel)) { if (r[0]) select(r[0].key); else { st.sel = null; clearChart(); } }
+function renderHeader() {
+  const m = markets.find(x => x.coin === st.coin);
+  $("#title").textContent = st.coin;
+  if (!m) return;
+  const c = m.prev ? (m.px / m.prev - 1) * 100 : 0;
+  $("#price").textContent = fmtPx(m.px);
+  $("#chg").innerHTML = `<span class="${c >= 0 ? "up" : "down"}">${c >= 0 ? "+" : ""}${c.toFixed(2)} % (24 h)</span> <span class="hint">· vol ${fmtVol(m.vol)}</span>`;
+  document.title = `${st.coin} ${fmtPx(m.px)} · Ranges`;
 }
-function clearChart() { if (chart) { chart.remove(); chart = null; } chartKey = null; $("#hdr").innerHTML = ""; $("#chart").innerHTML = '<div class="empty">Aucun signal</div>'; }
+$("#list").onclick = e => { const r = e.target.closest(".coin"); if (r) selectCoin(r.dataset.c); };
+$("#q").oninput = e => { st.q = e.target.value; renderList(); };
+$("#q").onkeydown = e => { if (e.key === "Enter") { const r = document.querySelector(".coin"); if (r) { selectCoin(r.dataset.c); e.target.blur(); } } };
 
-// ---------- signal sélectionné ----------
-async function select(key, keepView) {
-  const s = SIG.find(x => x.key === key); if (!s) return;
-  st.sel = key;
-  if (!seen.has(key)) { seen.add(key); LS.set("rr-seen", [...seen]); }
-  renderList();
-  if (!keepView) document.querySelector(`.it[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
-  renderHeader(s);
-  const bars = await api("/api/chart/" + encodeURIComponent(key));
-  if (st.sel !== key) return;
-  draw(s, bars, keepView);
+// ---------- graphiques ----------
+function buildGrid() {
+  $("#grid").innerHTML = TFS.map((t, i) => `<div class="cell" data-tf="${t.tf}">
+    <div class="lbl">${t.label}<button data-i="${i}">agrandir</button><span class="load"></span></div><div class="ch"></div></div>`).join("");
+  $("#grid").onclick = e => { const b = e.target.closest(".lbl button"); if (b) toggleSolo(TFS[+b.dataset.i].tf); };
+  const d = dark();
+  for (const t of TFS) {
+    const el = document.querySelector(`.cell[data-tf="${t.tf}"] .ch`);
+    const chart = LightweightCharts.createChart(el, {
+      autoSize: true,
+      layout: { background: { color: d ? "#0f1216" : "#ffffff" }, textColor: d ? "#7d8794" : "#6b7380", fontSize: 11 },
+      grid: { vertLines: { color: d ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: d ? "#1a1f27" : "#f0f1f4" } },
+      timeScale: { timeVisible: t.sec < 86400, secondsVisible: false, rightOffset: 6, borderColor: d ? "#262c36" : "#e3e6eb" },
+      rightPriceScale: { borderColor: d ? "#262c36" : "#e3e6eb" },
+      crosshair: { mode: 0 },
+    });
+    panes[t.tf] = { ...t, chart, series: null, bars: [], loading: false, done: false, gen: 0 };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) loadOlder(t.tf); });
+  }
 }
-function renderHeader(s) {
-  const now = Date.now() / 1000;
-  $("#hdr").innerHTML = `<h1>${s.coin} · ${s.tf}</h1>
-    <div class="kv"><span>Signal</span><b>${dt(s.t)} <span class="hint">(il y a ${ago(now - s.t)})</span></b></div>
-    <div class="kv"><span>Direction</span><b class="${s.dir === "short" ? "loss" : "win"}">${s.dir.toUpperCase()} (petit range en ${s.side === "top" ? "haut" : "bas"})</b></div>
-    <div class="kv"><span>Objectif · invalidation</span><b>${px(s.target)} · ${px(s.stop)}</b></div>
-    <div class="kv"><span>Touches haut / bas</span><b>${s.touchesTop} / ${s.touchesBot}</b></div>
-    <div class="kv"><span>Résultat</span><b class="${RES[s.out.result][1]}">${RES[s.out.result][0]}${s.out.result === "en cours" ? ` depuis ${s.out.bars} bougies` : ` en ${s.out.bars} bougies`}</b></div>
-    <div class="right">
-      <button class="btn" id="refOne" title="Recharge les dernières bougies de ce graphique">↻ Rafraîchir</button>
-      <span class="hint">C'est le motif ?</span>
-      <button class="btn yes ${s.vote === "yes" ? "on" : ""}" data-v="yes">Oui</button>
-      <button class="btn no ${s.vote === "no" ? "on" : ""}" data-v="no">Non</button>
-    </div>`;
-  $("#hdr .right").onclick = e => { const b = e.target.closest("button[data-v]"); if (b) vote(s, b.dataset.v); };
-  $("#refOne").onclick = () => refreshOne(s.key);
+function makeSeries(p) {
+  if (p.series) p.chart.removeSeries(p.series);
+  const last = p.bars.length ? p.bars[p.bars.length - 1].close : 1, pr = prec(last);
+  const fmt = { type: "price", precision: pr, minMove: Math.pow(10, -pr) };
+  p.series = st.mode === "bars"
+    ? p.chart.addBarSeries({ upColor: "#16a34a", downColor: dark() ? "#e5e7eb" : "#111827", thinBars: false, openVisible: true, priceFormat: fmt })
+    : p.chart.addCandlestickSeries({ upColor: "#16a34a", downColor: "#dc2626", borderVisible: false, wickUpColor: "#16a34a", wickDownColor: "#dc2626", priceFormat: fmt });
+  p.series.setData(p.bars);
 }
-async function vote(s, v) {
-  const nv = s.vote === v ? null : v;
-  s.vote = nv; renderHeader(s); renderList();
-  try { await api("/api/vote", { key: s.key, vote: nv }); } catch (e) { alert("Vote non enregistré : " + e.message); }
+// les bougies sont affichées à l'heure locale ; on garde l'heure UTC d'origine pour charger l'historique
+const toBar = c => { const t = Math.floor(c.t / 1000); return { time: t + tzOff(t), utc: t, open: +c.o, high: +c.h, low: +c.l, close: +c.c }; };
+
+async function fetchBars(coin, tf, sec, endMs) {
+  const raw = await post({ type: "candleSnapshot", req: { coin, interval: tf, startTime: endMs - PAGE * sec * 1000, endTime: endMs } });
+  return Array.isArray(raw) ? raw.map(toBar) : [];
 }
-async function refreshOne(key) {
-  const b = $("#refOne"); b.disabled = true; b.textContent = "↻ …";
+async function loadPane(tf) {
+  const p = panes[tf], gen = ++p.gen, coin = st.coin;
+  p.bars = []; p.done = false; p.loading = true; setLoad(tf, "chargement…");
+  if (p.series) p.series.setData([]);
   try {
-    const d = await api("/api/refresh", { key });
-    const i = SIG.findIndex(x => x.key === key); if (i >= 0) SIG[i] = d.signal;
-    renderList(); renderHeader(d.signal); draw(d.signal, d.chart, true);
-  } catch (e) { alert(e.message); b.disabled = false; b.textContent = "↻ Rafraîchir"; }
+    const bars = await fetchBars(coin, tf, p.sec, Date.now());
+    if (gen !== p.gen) return;
+    p.bars = bars;
+    makeSeries(p);
+    const n = bars.length;
+    p.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - SHOW), to: n + 5 });
+    setLoad(tf, n ? "" : "pas de données");
+  } catch (e) { if (gen === p.gen) setLoad(tf, "erreur — rechange de coin pour réessayer"); }
+  if (gen === p.gen) p.loading = false;
 }
+async function loadOlder(tf) {
+  const p = panes[tf];
+  if (p.loading || p.done || !p.bars.length) return;
+  p.loading = true; setLoad(tf, "historique…");
+  const gen = p.gen, coin = st.coin;
+  try {
+    const firstUtc = p.bars[0].utc;
+    const older = (await fetchBars(coin, tf, p.sec, firstUtc * 1000 - 1)).filter(b => b.utc < firstUtc);
+    if (gen !== p.gen) return;
+    if (!older.length) { p.done = true; setLoad(tf, "début de l'historique disponible"); setTimeout(() => setLoad(tf, ""), 2500); }
+    else {
+      const ts = p.chart.timeScale(), vr = ts.getVisibleLogicalRange();
+      p.bars = older.concat(p.bars);
+      p.series.setData(p.bars);
+      if (vr) ts.setVisibleLogicalRange({ from: vr.from + older.length, to: vr.to + older.length });
+      setLoad(tf, "");
+    }
+  } catch (e) { setLoad(tf, ""); }
+  if (gen === p.gen) p.loading = false;
+}
+function setLoad(tf, txt) { const el = document.querySelector(`.cell[data-tf="${tf}"] .load`); if (el) el.textContent = txt; }
 
-function draw(s, bars, keepView) {
-  const range = keepView && chart && chartKey === s.key ? chart.timeScale().getVisibleLogicalRange() : null;
-  if (chart) chart.remove();
-  $("#chart").innerHTML = "";
-  chartKey = s.key; chartUpdated = s.updatedAt;
-  if (!bars.length) { $("#chart").innerHTML = '<div class="empty">Pas de données</div>'; return; }
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  chart = LightweightCharts.createChart($("#chart"), {
-    autoSize: true,
-    layout: { background: { color: dark ? "#0f1216" : "#ffffff" }, textColor: dark ? "#7d8794" : "#6b7380" },
-    grid: { vertLines: { color: dark ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: dark ? "#1a1f27" : "#f0f1f4" } },
-    timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 }, crosshair: { mode: 0 },
+function selectCoin(coin) {
+  if (!coin) return;
+  st.coin = coin; LS.set("mtf-coin", coin);
+  renderList(); renderHeader();
+  document.querySelector(`.coin[data-c="${CSS.escape(coin)}"]`)?.scrollIntoView({ block: "nearest" });
+  for (const t of TFS) loadPane(t.tf);
+  subscribe();
+}
+function toggleSolo(tf) {
+  st.solo = st.solo === tf ? null : tf;
+  $("#grid").classList.toggle("solo", !!st.solo);
+  document.querySelectorAll(".cell").forEach(c => {
+    c.classList.toggle("big", c.dataset.tf === st.solo);
+    c.querySelector(".lbl button").textContent = c.dataset.tf === st.solo ? "grille" : "agrandir";
   });
-  const p0 = bars[bars.length - 1][4], prec = p0 >= 1000 ? 1 : p0 >= 100 ? 2 : p0 >= 1 ? 4 : p0 >= 0.01 ? 5 : 7;
-  const ser = chart.addBarSeries({ upColor: "#16a34a", downColor: dark ? "#e5e7eb" : "#111827", thinBars: false, openVisible: true,
-    priceFormat: { type: "price", precision: prec, minMove: Math.pow(10, -prec) } });
-  ser.setData(bars.map(b => ({ time: tz(b[0]), open: b[1], high: b[2], low: b[3], close: b[4] })));
-  const seg = (t0, t1, p, color, w = 2, style = 0) => {
-    if (t1 <= t0) return;
-    const l = chart.addLineSeries({ color, lineWidth: w, lineStyle: style, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
-    l.setData([{ time: tz(t0), value: p }, { time: tz(t1), value: p }]);
+}
+function setMode(m) {
+  st.mode = m; LS.set("mtf-mode", m);
+  $("#mode").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === m));
+  for (const t of TFS) {
+    const p = panes[t.tf];
+    if (!p.bars.length) continue;
+    const vr = p.chart.timeScale().getVisibleLogicalRange();
+    makeSeries(p);
+    if (vr) p.chart.timeScale().setVisibleLogicalRange(vr);
+  }
+}
+$("#mode").onclick = e => { const b = e.target.closest("button"); if (b) setMode(b.dataset.v); };
+
+// ---------- temps réel (WebSocket Hyperliquid) ----------
+function connect() {
+  ws = new WebSocket(WS);
+  ws.onopen = () => { $("#wsDot").classList.add("on"); $("#wsTxt").textContent = "temps réel"; wsCoin = null; subscribe(); };
+  ws.onclose = () => { $("#wsDot").classList.remove("on"); $("#wsTxt").textContent = "reconnexion…"; setTimeout(connect, 3000); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.channel !== "candle" || m.data.s !== st.coin) return;
+    const p = panes[m.data.i];
+    if (!p || !p.series || !p.bars.length) return;
+    const b = toBar(m.data), last = p.bars[p.bars.length - 1];
+    if (b.time < last.time) return;
+    if (b.time === last.time) p.bars[p.bars.length - 1] = b; else p.bars.push(b);
+    p.series.update(b);
+    if (m.data.i === "15m") { const mk = markets.find(x => x.coin === st.coin); if (mk) { mk.px = b.close; renderHeader(); } }
   };
-  const last = bars[bars.length - 1][0];
-  const tEnd = s.out.t || last;
-  seg(s.tStart, tEnd, s.H, "#f59e0b"); seg(s.tStart, tEnd, s.L, "#f59e0b");
-  seg(s.tInner, s.t, s.ih, "#8b5cf6"); seg(s.tInner, s.t, s.il, "#8b5cf6");
-  seg(s.t, tEnd, s.target, "#16a34a", 1, 2); seg(s.t, tEnd, s.stop, "#dc2626", 1, 2);
-  ser.setMarkers([
-    { time: tz(s.t), position: s.dir === "short" ? "aboveBar" : "belowBar", color: "#2563eb", shape: s.dir === "short" ? "arrowDown" : "arrowUp", text: "signal" },
-    ...(s.out.t ? [{ time: tz(s.out.t), position: "inBar", color: s.out.result === "win" ? "#16a34a" : "#dc2626", shape: "circle", text: s.out.result === "win" ? "✓" : "✗" }] : []),
-  ]);
-  if (range) chart.timeScale().setVisibleLogicalRange(range); else chart.timeScale().fitContent();
+}
+setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"method":"ping"}'); }, 30000);
+function subscribe() {
+  if (!ws || ws.readyState !== 1 || wsCoin === st.coin) return;
+  for (const t of TFS) {
+    if (wsCoin) ws.send(JSON.stringify({ method: "unsubscribe", subscription: { type: "candle", coin: wsCoin, interval: t.tf } }));
+    ws.send(JSON.stringify({ method: "subscribe", subscription: { type: "candle", coin: st.coin, interval: t.tf } }));
+  }
+  wsCoin = st.coin;
 }
 
-// ---------- contrôles ----------
-for (const [id, k] of [["#fTf", "tf"], ["#fCoin", "coin"], ["#fRes", "res"], ["#fVote", "vote"], ["#fAge", "age"]]) {
-  $(id).value = st[k];
-  $(id).onchange = e => { st[k] = e.target.value; st.sel = null; saveFilters(); refresh(); };
-}
-function saveFilters() { LS.set("rr-filters", { tab: st.tab, tf: st.tf, coin: st.coin, res: st.res, vote: st.vote, age: st.age }); }
-function renderTabs() {
-  const live = SIG.filter(s => s.out.result === "en cours").length;
-  $("#tabs").innerHTML = `<button data-v="live" class="${st.tab === "live" ? "on" : ""}">En cours<span class="n">${live}</span></button>`
-    + `<button data-v="hist" class="${st.tab === "hist" ? "on" : ""}">Historique<span class="n">${SIG.length - live}</span></button>`;
-  $("#fRes").disabled = st.tab === "live";
-}
-$("#tabs").onclick = e => { const b = e.target.closest("button"); if (!b) return; st.tab = b.dataset.v; st.sel = null; saveFilters(); renderTabs(); refresh(); };
-$("#scanAll").onclick = async () => { STATUS.running = true; renderStatus(); await api("/api/scan", {}); setTimeout(load, 1500); };
+// ---------- clavier ----------
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey) return;
-  const r = filtered(), i = r.findIndex(s => s.key === st.sel), s = r[i];
-  if (["ArrowDown", "ArrowRight"].includes(e.key) && i < r.length - 1) { select(r[i + 1].key); e.preventDefault(); }
-  if (["ArrowUp", "ArrowLeft"].includes(e.key) && i > 0) { select(r[i - 1].key); e.preventDefault(); }
-  if (s && e.key.toLowerCase() === "o") vote(s, "yes");
-  if (s && e.key.toLowerCase() === "n") vote(s, "no");
+  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
+  const rows = [...document.querySelectorAll(".coin")].map(r => r.dataset.c), i = rows.indexOf(st.coin);
+  if (e.key === "ArrowDown" && i < rows.length - 1) { selectCoin(rows[i + 1]); e.preventDefault(); }
+  if (e.key === "ArrowUp" && i > 0) { selectCoin(rows[i - 1]); e.preventDefault(); }
+  if (/^[1-4]$/.test(e.key)) toggleSolo(TFS[+e.key - 1].tf);
+  if (e.key === "Escape" && st.solo) toggleSolo(st.solo);
+  if (e.key.toLowerCase() === "b") setMode(st.mode === "bars" ? "candles" : "bars");
 });
-$("#imp").onclick = () => $("#impFile").click();
-$("#impFile").onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  try {
-    let data = JSON.parse(await f.text());
-    if (data.signals) data = data.signals;
-    const r = await api("/api/import-votes", data);
-    alert(`${r.imported} jugement(s) importé(s)`); load();
-  } catch (err) { alert("Fichier invalide"); }
-  e.target.value = "";
-};
 
-load();
-setInterval(load, 20000);          // nouvelles données toutes les 20 s
-setInterval(renderStatus, 1000);   // compte à rebours du prochain scan
+buildGrid();
+setMode(st.mode);
+loadMarkets().then(() => selectCoin(markets.find(m => m.coin === st.coin) ? st.coin : (topCoins[0] || {}).coin || "BTC"));
+setInterval(loadMarkets, 60000);
+connect();
 </script>
 </body>
 </html>
