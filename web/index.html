@@ -42,6 +42,21 @@
   .cell .lbl button { pointer-events: auto; border: 1px solid var(--border); background: var(--panel); color: var(--muted); border-radius: 4px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
   .cell .lbl .load { font-weight: 400; font-size: 11px; color: var(--muted); }
   .cell .ch { position: absolute; inset: 0; }
+  .ov { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; overflow: visible; }
+  .ov.drawing { pointer-events: all; cursor: crosshair; }
+  .ov .shape, .ov .hd { pointer-events: all; cursor: pointer; }
+  .ov .hit { stroke: transparent; stroke-width: 12; fill: none; }
+  .ov .pos rect { cursor: move; }
+  .ov .hd { fill: var(--bg); stroke: #3b82f6; stroke-width: 2; cursor: grab; }
+  .ov .lab { pointer-events: none; }
+  .ov .lab text { fill: #fff; font: 600 11px -apple-system, system-ui, sans-serif; }
+  .tools { display: flex; gap: 2px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 2px; flex-wrap: wrap; }
+  .tools button { border: 0; background: none; color: var(--text); padding: 4px 8px; border-radius: 5px; cursor: pointer; font: inherit; min-width: 28px; }
+  .tools button:hover { background: var(--bg); }
+  .tools button.on { background: #3b82f6; color: #fff; }
+  .tools .sw { min-width: 0; width: 16px; height: 16px; padding: 0; border-radius: 50%; background: var(--c); margin: 0 2px; }
+  .tools .sw.on { outline: 2px solid var(--text); outline-offset: 1px; background: var(--c); }
+  .tools .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
   @media (max-width: 800px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -59,7 +74,7 @@
     </div>
     <div class="list" id="list"></div>
     <div class="search" style="border-top:1px solid var(--border);border-bottom:0">
-      <div class="hint">↑ ↓ changer de coin · 1–4 agrandir un graphique · Échap grille · B barres/bougies · glisse vers la gauche pour l'historique</div>
+      <div class="hint">↑ ↓ coin · 1–4 agrandir · Échap grille · B barres/bougies · glisse à gauche pour l'historique<br>Dessins : H ligne · T tendance · R rectangle · L long · S short · M mesure · Suppr effacer. Un dessin apparaît sur les 4 timeframes.</div>
     </div>
   </aside>
   <main>
@@ -69,6 +84,7 @@
       <span id="chg"></span>
       <span class="grow"></span>
       <span class="live"><span class="dot" id="wsDot"></span><span id="wsTxt">connexion…</span></span>
+      <div class="tools" id="tools"></div>
       <div class="seg" id="mode"><button data-v="bars">Barres</button><button data-v="candles">Bougies</button></div>
     </header>
     <div class="grid" id="grid"></div>
@@ -130,7 +146,7 @@ $("#q").onkeydown = e => { if (e.key === "Enter") { const r = document.querySele
 // ---------- graphiques ----------
 function buildGrid() {
   $("#grid").innerHTML = TFS.map((t, i) => `<div class="cell" data-tf="${t.tf}">
-    <div class="lbl">${t.label}<button data-i="${i}">agrandir</button><span class="load"></span></div><div class="ch"></div></div>`).join("");
+    <div class="lbl">${t.label}<button data-i="${i}">agrandir</button><span class="load"></span></div><div class="ch"></div><svg class="ov"></svg></div>`).join("");
   $("#grid").onclick = e => { const b = e.target.closest(".lbl button"); if (b) toggleSolo(TFS[+b.dataset.i].tf); };
   const d = dark();
   for (const t of TFS) {
@@ -143,7 +159,10 @@ function buildGrid() {
       rightPriceScale: { borderColor: d ? "#262c36" : "#e3e6eb" },
       crosshair: { mode: 0 },
     });
-    panes[t.tf] = { ...t, chart, series: null, bars: [], loading: false, done: false, gen: 0 };
+    const ov = document.querySelector(`.cell[data-tf="${t.tf}"] .ov`);
+    panes[t.tf] = { ...t, chart, ov, ovHtml: "", series: null, bars: [], loading: false, done: false, gen: 0 };
+    ov.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointerdown", onDown, true); // clic sur un dessin même quand l'outil curseur est actif
     chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) loadOlder(t.tf); });
   }
 }
@@ -206,6 +225,7 @@ function selectCoin(coin) {
   renderList(); renderHeader();
   document.querySelector(`.coin[data-c="${CSS.escape(coin)}"]`)?.scrollIntoView({ block: "nearest" });
   for (const t of TFS) loadPane(t.tf);
+  loadDrawings(coin);
   subscribe();
 }
 function toggleSolo(tf) {
@@ -256,6 +276,231 @@ function subscribe() {
   wsCoin = st.coin;
 }
 
+// ---------- dessins (lignes, rectangles, positions, mesure) ----------
+// Chaque dessin est stocké en heure UTC + prix : il s'affiche sur les 4 timeframes du coin.
+const TOOLS = {
+  cursor: { label: "↖", title: "Curseur (Échap)" },
+  hline: { label: "―", title: "Ligne horizontale (H)" },
+  trend: { label: "╱", title: "Ligne de tendance (T)" },
+  rect: { label: "▭", title: "Rectangle / range (R)" },
+  long: { label: "Long", title: "Position longue (L)" },
+  short: { label: "Short", title: "Position courte (S)" },
+  ruler: { label: "📏", title: "Mesure : %, prix, bougies (M)" },
+};
+const COLORS = ["#f59e0b", "#ef4444", "#3b82f6", "#22c55e", "#a855f7", "#9ca3af"];
+const DEF_COLOR = { hline: "#3b82f6", trend: "#f59e0b", rect: "#f59e0b" };
+const dw = { items: [], sel: null, tool: "cursor", color: null, draft: null, drag: null, coin: null, saveT: null };
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+function buildToolbar() {
+  $("#tools").innerHTML = Object.entries(TOOLS).map(([k, t]) => `<button data-t="${k}" title="${t.title}">${t.label}</button>`).join("")
+    + `<span class="sep"></span>` + COLORS.map(c => `<button class="sw" data-c="${c}" title="Couleur" style="--c:${c}"></button>`).join("")
+    + `<span class="sep"></span><button data-act="del" title="Supprimer la sélection (Suppr)">🗑</button><button data-act="clear" title="Effacer tous les dessins de ce coin">Tout effacer</button>`;
+  $("#tools").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.t) setTool(b.dataset.t);
+    if (b.dataset.c) setColor(b.dataset.c);
+    if (b.dataset.act === "del") deleteSel();
+    if (b.dataset.act === "clear" && dw.items.length && confirm(`Effacer les ${dw.items.length} dessin(s) de ${st.coin} ?`)) { dw.items = []; dw.sel = null; saveDrawings(); }
+  };
+  setTool("cursor");
+}
+function setTool(t) {
+  dw.tool = t; dw.draft = null;
+  $("#tools").querySelectorAll("button[data-t]").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  document.querySelectorAll(".ov").forEach(o => o.classList.toggle("drawing", t !== "cursor"));
+}
+function setColor(c) {
+  dw.color = c;
+  const d = dw.items.find(x => x.id === dw.sel);
+  if (d && d.type !== "long" && d.type !== "short") { d.color = c; saveDrawings(); }
+  $("#tools").querySelectorAll(".sw").forEach(b => b.classList.toggle("on", b.dataset.c === c));
+}
+function deleteSel() { if (!dw.sel) return; dw.items = dw.items.filter(x => x.id !== dw.sel); dw.sel = null; saveDrawings(); }
+
+// --- persistance (serveur, avec copie locale si le serveur ne répond pas) ---
+async function loadDrawings(coin) {
+  dw.coin = coin; dw.items = []; dw.sel = null; dw.draft = null;
+  try {
+    const r = await fetch("/api/drawings?coin=" + encodeURIComponent(coin));
+    if (!r.ok) throw 0;
+    const items = await r.json();
+    if (dw.coin === coin) dw.items = items;
+  } catch (e) { if (dw.coin === coin) dw.items = LS.get("mtf-draw-" + coin, []); }
+}
+function saveDrawings() {
+  const coin = dw.coin, items = dw.items.slice();
+  LS.set("mtf-draw-" + coin, items);
+  clearTimeout(dw.saveT);
+  dw.saveT = setTimeout(() => fetch("/api/drawings?coin=" + encodeURIComponent(coin), {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(items),
+  }).catch(() => {}), 400);
+}
+
+// --- conversions temps/prix ↔ pixels (par graphique) ---
+function utcToLogical(p, utc) {
+  const b = p.bars, n = b.length;
+  if (!n) return null;
+  if (utc <= b[0].utc) return (utc - b[0].utc) / p.sec;
+  if (utc >= b[n - 1].utc) return n - 1 + (utc - b[n - 1].utc) / p.sec;
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (b[m].utc <= utc) lo = m; else hi = m; }
+  return lo + (utc - b[lo].utc) / (b[hi].utc - b[lo].utc);
+}
+function logicalToUtc(p, L) {
+  const b = p.bars, n = b.length;
+  if (L <= 0) return b[0].utc + L * p.sec;
+  if (L >= n - 1) return b[n - 1].utc + (L - (n - 1)) * p.sec;
+  const i = Math.floor(L);
+  return b[i].utc + (L - i) * (b[i + 1].utc - b[i].utc);
+}
+// la bibliothèque ne sait convertir que des index entiers : on interpole entre les deux bougies voisines
+function X(p, utc) {
+  const L = utcToLogical(p, utc); if (L == null) return null;
+  const ts = p.chart.timeScale(), i = Math.floor(L), a = ts.logicalToCoordinate(i), b = ts.logicalToCoordinate(i + 1);
+  return a == null || b == null ? null : a + (L - i) * (b - a);
+}
+const Y = (p, price) => p.series ? p.series.priceToCoordinate(price) : null;
+function toPoint(p, x, y) {
+  const L = p.chart.timeScale().coordinateToLogical(x), price = p.series.coordinateToPrice(y);
+  return L == null || price == null ? null : { t: Math.round(logicalToUtc(p, L)), p: price };
+}
+
+// --- rendu SVG ---
+const pct = (a, b) => (b - a) / a * 100;
+const fmtPct = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " %";
+function label(x, y, text, color, anchor = "start") {
+  const w = text.length * 6.6 + 10, x0 = Math.max(2, anchor === "end" ? x - w : anchor === "middle" ? x - w / 2 : x);
+  return `<g class="lab"><rect x="${x0}" y="${y - 9}" width="${w}" height="18" rx="3" fill="${color}"/><text x="${x0 + 5}" y="${y + 4}">${text}</text></g>`;
+}
+function handle(d, part, x, y) { return dw.sel === d.id ? `<circle class="hd" data-id="${d.id}" data-part="${part}" cx="${x}" cy="${y}" r="5"/>` : ""; }
+function shapeSvg(p, d, W) {
+  const sel = dw.sel === d.id, c = d.color || DEF_COLOR[d.type] || "#3b82f6", sw = sel ? 2.5 : 1.5;
+  const hit = (inner, part = "body") => `<g data-id="${d.id}" data-part="${part}" class="shape">${inner}</g>`;
+  if (d.type === "hline") {
+    const y = Y(p, d.p); if (y == null) return "";
+    return hit(`<line x1="0" x2="${W}" y1="${y}" y2="${y}" class="hit"/><line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="${c}" stroke-width="${sw}"/>`)
+      + label(W - 4, y, fmtPx(d.p), c, "end");
+  }
+  const x1 = X(p, d.t1), y1 = Y(p, d.p1), x2 = X(p, d.t2), y2 = Y(p, d.p2);
+  if ([x1, y1, x2, y2].some(v => v == null)) return "";
+  if (d.type === "trend") {
+    return hit(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="hit"/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${sw}"/>`)
+      + (sel && x2 >= 0 && x2 <= W ? label(x2 + 8, y2, fmtPct(pct(d.p1, d.p2)), c) : "") + handle(d, "a", x1, y1) + handle(d, "b", x2, y2);
+  }
+  if (d.type === "rect") {
+    const l = Math.min(x1, x2), t = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+    const hi = Math.max(d.p1, d.p2), lo = Math.min(d.p1, d.p2);
+    return hit(`<rect x="${l}" y="${t}" width="${w}" height="${h}" class="hit"/><rect x="${l}" y="${t}" width="${w}" height="${h}" fill="${c}" fill-opacity=".08" stroke="${c}" stroke-width="${sw}"/>`)
+      + (w > 70 && h > 22 ? label(l + 4, t + 12, `range ${(pct(lo, hi)).toFixed(2)} %`, c) : "")
+      + handle(d, "a", x1, y1) + handle(d, "b", x2, y2) + handle(d, "c", x1, y2) + handle(d, "d", x2, y1);
+  }
+  if (d.type === "ruler") {
+    if (d.tf && d.tf !== p.tf) return "";
+    const up = d.p2 >= d.p1, col = up ? "#16a34a" : "#dc2626";
+    const n = Math.round(utcToLogical(p, d.t2) - utcToLogical(p, d.t1));
+    const dur = Math.abs(d.t2 - d.t1), durTxt = dur >= 86400 ? `${(dur / 86400).toFixed(1)} j` : dur >= 3600 ? `${(dur / 3600).toFixed(1)} h` : `${Math.round(dur / 60)} min`;
+    return `<rect x="${Math.min(x1, x2)}" y="${Math.min(y1, y2)}" width="${Math.abs(x2 - x1)}" height="${Math.abs(y2 - y1)}" fill="${col}" fill-opacity=".12" stroke="${col}" stroke-dasharray="4 3"/>`
+      + label((x1 + x2) / 2, up ? Math.min(y1, y2) - 14 : Math.max(y1, y2) + 14, `${fmtPct(pct(d.p1, d.p2))} · ${fmtPx(Math.abs(d.p2 - d.p1))} · ${n} bougies · ${durTxt}`, col, "middle");
+  }
+  return "";
+}
+function positionSvg(p, d) {
+  const x1 = X(p, d.t1), x2 = X(p, d.t2), ye = Y(p, d.entry), yt = Y(p, d.tp), ys = Y(p, d.sl);
+  if ([x1, x2, ye, yt, ys].some(v => v == null)) return "";
+  const l = Math.min(x1, x2), w = Math.max(6, Math.abs(x2 - x1)), r = l + w;
+  const g = fmtPct(pct(d.entry, d.tp) * (d.type === "short" ? -1 : 1)), s = fmtPct(pct(d.entry, d.sl) * (d.type === "short" ? -1 : 1));
+  const rr = Math.abs(d.tp - d.entry) / Math.abs(d.entry - d.sl);
+  return `<g data-id="${d.id}" data-part="body" class="shape pos">
+      <rect x="${l}" y="${Math.min(ye, yt)}" width="${w}" height="${Math.abs(yt - ye)}" fill="#16a34a" fill-opacity=".22"/>
+      <rect x="${l}" y="${Math.min(ye, ys)}" width="${w}" height="${Math.abs(ys - ye)}" fill="#dc2626" fill-opacity=".22"/>
+      <line x1="${l}" x2="${r}" y1="${ye}" y2="${ye}" stroke="#9ca3af" stroke-width="1.5"/></g>`
+    + (w < 40 ? "" : label(l + 4, yt + (yt < ye ? 11 : -11), `Objectif ${fmtPx(d.tp)} · ${g}`, "#16a34a")
+      + label(l + 4, ys + (ys > ye ? -11 : 11), `Stop ${fmtPx(d.sl)} · ${s}`, "#dc2626")
+      + label(r + 4, ye, `${d.type === "long" ? "Long" : "Short"} ${fmtPx(d.entry)} · R:R ${rr.toFixed(2)}`, "#6b7280"))
+    + handle(d, "tp", l + w / 2, yt) + handle(d, "sl", l + w / 2, ys) + handle(d, "entry", l, ye) + handle(d, "w", r, ye);
+}
+function renderOverlay(p) {
+  const ov = p.ov; if (!ov || !p.series || !p.bars.length) { if (ov && ov.innerHTML) ov.innerHTML = ""; return; }
+  const W = p.chart.timeScale().width(), H = ov.clientHeight - p.chart.timeScale().height();
+  let s = `<defs><clipPath id="clip-${p.tf}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs><g clip-path="url(#clip-${p.tf})">`;
+  for (const d of dw.items) s += d.type === "long" || d.type === "short" ? positionSvg(p, d) : shapeSvg(p, d, W);
+  if (dw.draft) s += dw.draft.type === "long" || dw.draft.type === "short" ? positionSvg(p, dw.draft) : shapeSvg(p, dw.draft, W);
+  s += "</g>";
+  if (s !== p.ovHtml) { ov.innerHTML = s; p.ovHtml = s; }
+}
+function renderLoop() { for (const t of TFS) renderOverlay(panes[t.tf]); requestAnimationFrame(renderLoop); }
+
+// --- souris : créer, sélectionner, déplacer ---
+function paneOf(el) { const c = el.closest(".cell"); return c ? panes[c.dataset.tf] : null; }
+function localXY(p, e) { const r = p.ov.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function onDown(e) {
+  const p = paneOf(e.currentTarget); if (!p || !p.series) return;
+  const { x, y } = localXY(p, e), pt = toPoint(p, x, y);
+  // continuer un dessin commencé par un clic (mode clic-clic)
+  if (dw.draft && dw.draft.clickMode) { finishDraft(); return; }
+  if (dw.tool !== "cursor" && pt) {
+    e.preventDefault();
+    const c = dw.color || DEF_COLOR[dw.tool];
+    if (dw.tool === "hline") { addItem({ id: uid(), type: "hline", p: pt.p, color: c }); return; }
+    if (dw.tool === "long" || dw.tool === "short") {
+      const vr = p.chart.timeScale().getVisibleLogicalRange(), top = p.series.coordinateToPrice(0), bot = p.series.coordinateToPrice(p.ov.clientHeight - p.chart.timeScale().height());
+      const span = Math.abs(top - bot) * 0.08, dir = dw.tool === "long" ? 1 : -1, width = Math.max(10, Math.round((vr.to - vr.from) * 0.15));
+      addItem({ id: uid(), type: dw.tool, t1: pt.t, t2: Math.round(logicalToUtc(p, utcToLogical(p, pt.t) + width)), entry: pt.p, tp: pt.p + dir * 2 * span, sl: pt.p - dir * span });
+      return;
+    }
+    dw.draft = { id: uid(), type: dw.tool, t1: pt.t, p1: pt.p, t2: pt.t, p2: pt.p, color: c, x0: x, y0: y, tf: p.tf };
+    dw.drag = { pane: p, kind: "draft" };
+    return;
+  }
+  // curseur : clic sur un dessin ou une poignée ?
+  const tgt = e.target.closest("[data-id]");
+  if (tgt) {
+    e.preventDefault(); e.stopPropagation();
+    dw.sel = tgt.dataset.id;
+    const d = dw.items.find(i => i.id === dw.sel);
+    if (d && pt) dw.drag = { pane: p, kind: "move", part: tgt.dataset.part, d, start: pt, orig: JSON.parse(JSON.stringify(d)) };
+  } else if (dw.sel) dw.sel = null;
+  if (dw.draft && dw.draft.type === "ruler") dw.draft = null;
+}
+function onMove(e) {
+  const g = dw.drag;
+  if (!g) { if (dw.draft && dw.draft.clickMode) { const p = dw.draft.pane; const { x, y } = localXY(p, e), pt = toPoint(p, x, y); if (pt) { dw.draft.t2 = pt.t; dw.draft.p2 = pt.p; } } return; }
+  const p = g.pane, { x, y } = localXY(p, e), pt = toPoint(p, x, y); if (!pt) return;
+  if (g.kind === "draft") { dw.draft.t2 = pt.t; dw.draft.p2 = pt.p; return; }
+  const d = g.d, o = g.orig, dt = pt.t - g.start.t, dp = pt.p - g.start.p;
+  if (d.type === "hline") d.p = o.p + dp;
+  else if (d.type === "long" || d.type === "short") {
+    if (g.part === "tp") d.tp = pt.p;
+    else if (g.part === "sl") d.sl = pt.p;
+    else if (g.part === "w") d.t2 = Math.max(pt.t, d.t1 + p.sec);
+    else { d.t1 = o.t1 + dt; d.t2 = o.t2 + dt; d.entry = o.entry + dp; d.tp = o.tp + dp; d.sl = o.sl + dp; }
+  } else {
+    if (g.part === "a") { d.t1 = pt.t; d.p1 = pt.p; }
+    else if (g.part === "b") { d.t2 = pt.t; d.p2 = pt.p; }
+    else if (g.part === "c") { d.t1 = pt.t; d.p2 = pt.p; }
+    else if (g.part === "d") { d.t2 = pt.t; d.p1 = pt.p; }
+    else { d.t1 = o.t1 + dt; d.t2 = o.t2 + dt; d.p1 = o.p1 + dp; d.p2 = o.p2 + dp; }
+  }
+}
+function onUp(e) {
+  const g = dw.drag; dw.drag = null;
+  if (!g) return;
+  if (g.kind === "draft") {
+    const { x, y } = localXY(g.pane, e);
+    if (Math.hypot(x - dw.draft.x0, y - dw.draft.y0) < 5) { dw.draft.clickMode = true; dw.draft.pane = g.pane; return; } // simple clic → 2e clic pour finir
+    finishDraft();
+  } else saveDrawings();
+}
+function finishDraft() {
+  const d = dw.draft; dw.draft = null;
+  delete d.clickMode; delete d.pane; delete d.x0; delete d.y0;
+  if (d.type !== "ruler") delete d.tf;
+  if (d.type === "ruler") { setTool("cursor"); dw.draft = d; return; } // la mesure reste affichée jusqu'au prochain clic
+  addItem(d);
+}
+function addItem(d) { dw.items.push(d); dw.sel = d.id; saveDrawings(); setTool("cursor"); }
+
 // ---------- clavier ----------
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
@@ -263,11 +508,18 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowDown" && i < rows.length - 1) { selectCoin(rows[i + 1]); e.preventDefault(); }
   if (e.key === "ArrowUp" && i > 0) { selectCoin(rows[i - 1]); e.preventDefault(); }
   if (/^[1-4]$/.test(e.key)) toggleSolo(TFS[+e.key - 1].tf);
-  if (e.key === "Escape" && st.solo) toggleSolo(st.solo);
+  if (e.key === "Escape") { if (dw.draft || dw.tool !== "cursor") { dw.draft = null; setTool("cursor"); return; } if (dw.sel) { dw.sel = null; return; } if (st.solo) toggleSolo(st.solo); }
+  if ((e.key === "Delete" || e.key === "Backspace") && dw.sel) { deleteSel(); e.preventDefault(); return; }
+  const k = { h: "hline", t: "trend", r: "rect", l: "long", s: "short", m: "ruler" }[e.key.toLowerCase()];
+  if (k) setTool(dw.tool === k ? "cursor" : k);
   if (e.key.toLowerCase() === "b") setMode(st.mode === "bars" ? "candles" : "bars");
 });
 
 buildGrid();
+buildToolbar();
+window.addEventListener("pointermove", onMove);
+window.addEventListener("pointerup", onUp);
+requestAnimationFrame(renderLoop);
 setMode(st.mode);
 loadMarkets().then(() => selectCoin(markets.find(m => m.coin === st.coin) ? st.coin : (topCoins[0] || {}).coin || "BTC"));
 setInterval(loadMarkets, 60000);
