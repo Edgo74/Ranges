@@ -37,6 +37,10 @@ P = {
     "inner_far": 0.4,         # aucune bougie du petit range ne descend sous 40 % de la hauteur (petit range en haut)
     "before_inner_bars": 2,   # au moins 2 bougies du grand range avant le petit
     "outcome_bars": 120,      # nb de bougies max pour juger si le signal a marché
+    # contexte 4h : même règle de range (4 bougies sur un bord, 2 sur l'autre, allers-retours)
+    "h4_max_atr": 8.0,        # un range 4h peut être plus large (jusqu'à 8 bougies 4h moyennes de haut)
+    "h4_edge_zone": 0.35,     # « bord haut » du range 4h = 35 % du haut ; « bord bas » = 35 % du bas
+    "h4_outcome_bars": 12,    # on juge le bord opposé du 4h sur 12 bougies 4h (48 h)
     "stop_mult": 0.5,         # échec si le prix dépasse le bord du petit range de 50 % de la hauteur du grand range
 }
 
@@ -58,7 +62,7 @@ def top_coins(n):
     return [name for _, name in sorted(rows, reverse=True)[:n]]
 
 
-TF_MS = {"1m": 60e3, "3m": 180e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3}
+TF_MS = {"1m": 60e3, "3m": 180e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "4h": 14400e3}
 
 
 def candles(coin, tf, days):
@@ -195,7 +199,76 @@ def scan(bars, since_t):
     return out
 
 
-def build_signal(bars, d, coin, tf):
+# ---------- contexte 4h ----------
+
+def find_range(bars, e, max_atr):
+    """Le plus long range valide qui se termine à la bougie e (sans petit range) : (start, stats) ou None."""
+    atr = avg_bar(bars, e)
+    if atr <= 0:
+        return None
+    best, H0, L0 = None, -1e18, 1e18
+    for n in range(1, P["range_max_bars"] + 1):
+        s = e - n + 1
+        if s < 0:
+            break
+        H0, L0 = max(H0, bars[s]["h"]), min(L0, bars[s]["l"])
+        if n < P["range_min_bars"] or H0 - L0 < P["range_min_atr"] * atr:
+            continue
+        r = range_stats(bars[s:e + 1], P["touch_tol"], P["max_breaks"])
+        if not is_range(r, P["edge_min_touches"], P["other_min_touches"]):
+            continue
+        if not (P["range_min_atr"] * atr <= r["hgt"] <= max_atr * atr):
+            continue
+        if not (r["L"] - r["tol"] <= bars[e]["c"] <= r["H"] + r["tol"]):
+            continue
+        best = (s, r)
+    return best
+
+
+def context_4h(h4, sig_close_t, price, direction):
+    """Où se trouve le signal dans le range 4h en place au moment du signal (aucune bougie future utilisée)."""
+    step = TF_MS["4h"] / 1000
+    closed = [i for i, b in enumerate(h4) if b["t"] + step <= sig_close_t]
+    if not closed:
+        return None
+    e = closed[-1]
+    found = find_range(h4, e, P["h4_max_atr"])
+    if not found:
+        return {"range": False}
+    s, r = found
+    H, L, hgt = r["H"], r["L"], r["hgt"]
+    pos = (price - L) / hgt
+    z = P["h4_edge_zone"]
+    zone = "au-dessus" if pos > 1 else "en dessous" if pos < 0 else "haut" if pos >= 1 - z else "bas" if pos <= z else "milieu"
+    # aligné : petit range en haut (short) dans le haut du range 4h → on vise aussi le bas du 4h ; et inversement
+    aligned = (direction == "short" and zone == "haut") or (direction == "long" and zone == "bas")
+    ctx = {"range": True, "H": H, "L": L, "tStart": h4[s]["t"], "tEnd": h4[e]["t"] + step, "pos": round(pos, 3),
+           "zone": zone, "aligned": aligned, "touchesTop": len(r["top"]), "touchesBot": len(r["bot"])}
+    ctx["out"] = outcome_4h(h4, e, ctx)
+    return ctx
+
+
+def outcome_4h(h4, e, ctx):
+    """Le bord opposé du range 4h est-il pris (avant que le prix sorte de l'autre côté) ?"""
+    if ctx["zone"] not in ("haut", "bas"):
+        return None
+    hgt = ctx["H"] - ctx["L"]
+    for j in range(e + 1, min(len(h4), e + 1 + P["h4_outcome_bars"])):
+        b = h4[j]
+        if ctx["zone"] == "haut":
+            hit_t, hit_s = b["l"] <= ctx["L"], b["h"] > ctx["H"] + P["stop_mult"] * hgt
+        else:
+            hit_t, hit_s = b["h"] >= ctx["H"], b["l"] < ctx["L"] - P["stop_mult"] * hgt
+        if hit_t and hit_s:
+            return {"result": "ambigu", "t": b["t"]}
+        if hit_t:
+            return {"result": "win", "t": b["t"]}
+        if hit_s:
+            return {"result": "loss", "t": b["t"]}
+    return {"result": "en cours"}
+
+
+def build_signal(bars, d, coin, tf, h4=None):
     """Signal + graphique (barres autour du setup, jusqu'à maintenant tant qu'il est en cours)."""
     s0 = max(0, d["s"] - 30)
     if d["out"]["result"] == "en cours":
@@ -216,6 +289,8 @@ def build_signal(bars, d, coin, tf):
         "price": bars[d["e"]]["c"],
         "out": d["out"],
     }
+    if h4:
+        sig["h4"] = context_4h(h4, sig["t"] + TF_MS[tf] / 1000, sig["price"], sig["dir"])
     chart = [[b["t"], b["o"], b["h"], b["l"], b["c"]] for b in bars[s0:e1]]
     return sig, chart
 

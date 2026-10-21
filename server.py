@@ -71,9 +71,10 @@ wake = threading.Event()
 def upsert(sig, chart, allow_new):
     """Insère un nouveau signal, ou met à jour le résultat/graphique d'un signal existant."""
     now = int(time.time())
-    row = q("SELECT key, result FROM signals WHERE key=?", (sig["key"],), one=True)
+    row = q("SELECT key, result, data FROM signals WHERE key=?", (sig["key"],), one=True)
     if row:
-        if row["result"] == "en cours" or sig["out"]["result"] != row["result"]:
+        missing_h4 = "h4" in sig and '"h4"' not in row["data"]  # signal enregistré avant l'ajout du contexte 4h
+        if row["result"] == "en cours" or sig["out"]["result"] != row["result"] or missing_h4:
             q("UPDATE signals SET result=?, data=?, chart=?, updated_at=? WHERE key=?",
               (sig["out"]["result"], json.dumps(sig), json.dumps(chart), now, sig["key"]))
         return False
@@ -129,7 +130,28 @@ def coins_to_scan():
     return list(top_cache["coins"])
 
 
-def scan_series(coin, tf, days, new_since, force=False):
+def get_h4(coin):
+    """Bougies 4h du coin (rechargées seulement quand une nouvelle bougie 4h a clôturé)."""
+    cached = series.get((coin, "4h"))
+    if cached and time.time() < cached[-1]["t"] + 2 * 14400:
+        return cached
+    return get_bars(coin, "4h", 10)
+
+
+def update_h4_outcomes(h4map):
+    """Le résultat 4h se joue sur 48 h : on le met à jour même pour les signaux 5m/15m déjà terminés."""
+    for r in q("SELECT key, coin, tf, data FROM signals WHERE t > ?", (int(time.time() - 3 * 86400),)):
+        sig = json.loads(r["data"])
+        h = sig.get("h4")
+        if not h or not h.get("out") or h["out"]["result"] != "en cours" or r["coin"] not in h4map:
+            continue
+        new = D.context_4h(h4map[r["coin"]], sig["t"] + D.TF_MS[r["tf"]] / 1000, sig["price"], sig["dir"])
+        if new and new != h:
+            sig["h4"] = new
+            q("UPDATE signals SET data=?, updated_at=? WHERE key=?", (json.dumps(sig), int(time.time()), r["key"]))
+
+
+def scan_series(coin, tf, days, new_since, force=False, h4=None):
     """Rejoue la détection sur une série ; un signal n'est AJOUTÉ que s'il est récent (pas un ancien qui réapparaît
     parce que la fenêtre a glissé)."""
     cached = series.get((coin, tf))
@@ -140,8 +162,10 @@ def scan_series(coin, tf, days, new_since, force=False):
     if len(bars) < 60:
         return 0
     new = 0
+    if h4 is None:
+        h4 = get_h4(coin)
     for d in D.scan(bars, time.time() - days * 86400):
-        sig, chart = D.build_signal(bars, d, coin, tf)
+        sig, chart = D.build_signal(bars, d, coin, tf, h4)
         new += upsert(sig, chart, allow_new=sig["t"] >= new_since)
     return new
 
@@ -162,13 +186,20 @@ def run_scan():
             if r["coin"] not in coins:
                 coins.append(r["coin"])
         status["coins"] = coins
+        h4map = {}
+        for coin in coins:
+            try:
+                h4map[coin] = get_h4(coin)
+            except Exception as e:
+                print(f"4h {coin}: {e}", flush=True)
         new = 0
         for tf in TFS:
             for coin in coins:
                 try:
-                    new += scan_series(coin, tf, days, new_since)
+                    new += scan_series(coin, tf, days, new_since, h4=h4map.get(coin) or [])
                 except Exception as e:
                     print(f"scan {coin} {tf}: {e}", flush=True)
+        update_h4_outcomes(h4map)
         q("DELETE FROM signals WHERE t < ?", (int(time.time() - KEEP_DAYS * 86400),))
         meta_set("lastScanAt", int(t0))
         status.update(lastAt=int(t0), lastDuration=round(time.time() - t0, 1), lastNew=new)
