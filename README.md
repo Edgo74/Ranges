@@ -3,7 +3,7 @@
 Repère sur Hyperliquid un **range serré** dans lequel se forme un **petit range collé à un bord**
 (petit range en haut → le prix va souvent chercher le bas, et inversement).
 
-- Scan automatique toutes les 5 minutes, juste après la clôture des bougies (5m et 15m, 30 coins les plus échangés).
+- Scan automatique toutes les 5 minutes, juste après la clôture des bougies (5m, 15m et 4h, 30 coins Hyperliquid avec le plus de volume sur 24 h).
 - Interface : liste des signaux (en cours / réussis / ratés), graphique en barres OHLC, boutons **Oui / Non**.
 - Tes jugements sont enregistrés sur le serveur ; « Exporter jugements » télécharge un fichier avec les signaux
   et leurs graphiques, pour affiner la détection.
@@ -35,7 +35,7 @@ Au premier démarrage, le serveur rattrape les 2 derniers jours (~3 min), puis s
 | `APP_PASSWORD` | (vide) | mot de passe de l'interface — obligatoire en ligne |
 | `DATA_DIR` | `./data` | où est stockée la base (signaux + jugements) |
 | `COINS` | `30` | nombre de coins (les plus gros volumes) |
-| `TFS` | `5m,15m` | timeframes scannés |
+| `TFS` | `5m,15m,4h` | timeframes scannés (le 4h n'est rescanné qu'à chaque clôture de bougie 4h) |
 | `SCAN_EVERY_MIN` | `5` | fréquence du scan |
 | `BACKFILL_DAYS` | `2` | historique rattrapé au premier démarrage |
 | `KEEP_DAYS` | `30` | durée de conservation des signaux |
