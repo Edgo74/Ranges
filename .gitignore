@@ -1,0 +1,4 @@
+data/
+data.js
+__pycache__/
+.DS_Store

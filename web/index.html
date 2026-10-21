@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range dans le range</title>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root { --bg:#ffffff; --panel:#f6f7f9; --border:#e3e6eb; --text:#16191e; --muted:#6b7380; --green:#15803d; --red:#b91c1c; --amber:#b45309; --blue:#2563eb; --new:#7c3aed; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --panel:#161a20; --border:#262c36; --text:#e2e6ec; --muted:#7d8794; --green:#4ade80; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa; --new:#a78bfa; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  aside { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  .f { padding: 12px; display: grid; gap: 8px; border-bottom: 1px solid var(--border); }
+  select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sum { font-size: 12px; color: var(--muted); } .sum b { color: var(--text); }
+  .scan { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .scan .grow { flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .dot.busy { background: var(--amber); animation: pulse 1s infinite; }
+  .dot.err { background: var(--red); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .list { overflow-y: auto; flex: 1; }
+  .tabs { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+  .tabs button { flex: 1; border: 0; background: none; color: var(--muted); padding: 6px; border-radius: 5px; cursor: pointer; font: inherit; font-weight: 600; }
+  .tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .tabs .n { font-weight: 400; color: var(--muted); margin-left: 4px; }
+  .it { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px; }
+  .it:hover { background: var(--bg); } .it.sel { box-shadow: inset 3px 0 0 var(--blue); background: var(--bg); }
+  .it .d { color: var(--muted); font-size: 11px; }
+  .badge-new { font-size: 10px; font-weight: 700; color: #fff; background: var(--new); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+  .win { color: var(--green); } .loss { color: var(--red); } .open { color: var(--amber); }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 16px; }
+  .kv span { display: block; font-size: 11px; color: var(--muted); } .kv b { font-variant-numeric: tabular-nums; }
+  #chart { flex: 1; min-height: 300px; position: relative; }
+  .right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+  .btn:disabled { opacity: .5; cursor: wait; }
+  .btn.sm { padding: 4px 8px; font-size: 12px; }
+  .btn.on.yes { background: #dcfce7; border-color: var(--green); color: #14532d; }
+  .btn.on.no { background: #fee2e2; border-color: var(--red); color: #7f1d1d; }
+  .legend { padding: 6px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); display: flex; gap: 16px; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 4px; }
+  .hint { font-size: 11px; color: var(--muted); }
+  .empty { display: grid; place-items: center; height: 100%; color: var(--muted); padding: 20px; text-align: center; }
+  @media (max-width: 800px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+    aside { border-right: 0; border-bottom: 1px solid var(--border); }
+    .list { max-height: 40vh; }
+    #chart { height: 60vh; flex: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="f">
+      <div class="scan">
+        <span class="dot" id="dot"></span><span id="scanTxt">Chargement…</span><span class="grow"></span>
+        <button class="btn sm" id="scanAll" title="Relance tout de suite le scan de tous les coins">Tout rafraîchir</button>
+      </div>
+      <div class="tabs" id="tabs"><button data-v="live" class="on">En cours</button><button data-v="hist">Historique</button></div>
+      <div class="row">
+        <select id="fTf"><option value="">Tous TF</option></select>
+        <select id="fCoin"><option value="">Tous coins</option></select>
+      </div>
+      <div class="row">
+        <select id="fRes"><option value="">Tous résultats</option><option value="win">✓ réussis</option><option value="loss">✗ ratés</option></select>
+        <select id="fVote"><option value="">Tous</option><option value="none">Pas encore jugés</option><option value="yes">Jugés « oui »</option><option value="no">Jugés « non »</option></select>
+      </div>
+      <select id="fAge"><option value="">Toute la période</option><option value="3600">Dernière heure</option><option value="21600">6 dernières heures</option><option value="86400">24 dernières heures</option><option value="259200">3 derniers jours</option></select>
+      <div class="sum" id="sum"></div>
+    </div>
+    <div class="list" id="list"></div>
+    <div class="f" style="border-top:1px solid var(--border);border-bottom:0">
+      <div class="row">
+        <a class="btn" href="/api/export" style="text-align:center;text-decoration:none">Exporter jugements</a>
+        <button class="btn" id="imp">Importer jugements</button>
+      </div>
+      <div class="hint">← → : signal précédent / suivant · O : c'est le motif · N : ce n'est pas le motif</div>
+    </div>
+  </aside>
+  <main>
+    <header id="hdr"></header>
+    <div id="chart"><div class="empty">Sélectionne un signal</div></div>
+    <div class="legend">
+      <span><span class="sw" style="background:#f59e0b"></span>grand range</span>
+      <span><span class="sw" style="background:#8b5cf6"></span>petit range</span>
+      <span><span class="sw" style="background:#16a34a"></span>objectif (bord opposé)</span>
+      <span><span class="sw" style="background:#dc2626"></span>invalidation</span>
+      <span>Réussi = objectif touché avant l'invalidation</span>
+    </div>
+  </main>
+</div>
+<input type="file" id="impFile" accept="application/json" hidden>
+<script>
+const $ = s => document.querySelector(s);
+let SIG = [], STATUS = {}, NOW = 0, chart = null, chartKey = null, chartUpdated = null;
+const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+const st = Object.assign({ tab: "live", tf: "", coin: "", res: "", vote: "", age: "" }, LS.get("rr-filters", {}), { sel: null });
+if (st.res === "en cours") st.res = "";
+const seen = new Set(LS.get("rr-seen", []));
+let firstLoad = !LS.get("rr-seen", null);
+
+const tz = t => t - new Date(t * 1000).getTimezoneOffset() * 60;
+const dt = t => new Date(t * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const ago = s => { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 86400 ? `${Math.floor(s / 3600)} h ${String(Math.round(s % 3600 / 60)).padStart(2, "0")}` : `${Math.round(s / 86400)} j`; };
+const RES = { win: ["✓ réussi", "win"], loss: ["✗ raté", "loss"], "en cours": ["en cours", "open"], ambigu: ["ambigu", "open"] };
+const px = v => Number(v).toPrecision(6).replace(/\.?0+$/, "");
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("Erreur " + r.status);
+  return r.json();
+}
+
+// ---------- données ----------
+async function load() {
+  try {
+    const d = await api("/api/signals");
+    SIG = d.signals; STATUS = d.status; NOW = d.now;
+    if (firstLoad) { SIG.forEach(s => seen.add(s.key)); LS.set("rr-seen", [...seen]); firstLoad = false; }
+    fillSelect("#fTf", [...new Set(SIG.map(s => s.tf))].sort(), st.tf);
+    fillSelect("#fCoin", [...new Set(SIG.map(s => s.coin))].sort(), st.coin);
+    renderStatus(); refresh();
+    const s = SIG.find(x => x.key === st.sel);
+    if (s && s.key === chartKey && s.updatedAt !== chartUpdated) select(s.key, true);
+  } catch (e) {
+    $("#dot").className = "dot err"; $("#scanTxt").textContent = "serveur injoignable";
+  }
+}
+function fillSelect(sel, values, cur) {
+  const el = $(sel), first = el.options[0].outerHTML;
+  el.innerHTML = first + values.map(v => `<option ${v === cur ? "selected" : ""}>${v}</option>`).join("");
+}
+function renderStatus() {
+  const now = Date.now() / 1000;
+  $("#dot").className = "dot" + (STATUS.running ? " busy" : STATUS.error ? " err" : "");
+  $("#scanAll").disabled = !!STATUS.running;
+  $("#scanTxt").textContent = STATUS.running ? "Scan en cours…"
+    : STATUS.error ? "Erreur : " + STATUS.error
+    : STATUS.lastAt ? `Scan il y a ${ago(now - STATUS.lastAt)}${STATUS.nextAt ? ` · prochain dans ${ago(STATUS.nextAt - now)}` : ""}` : "Premier scan…";
+  $("#scanTxt").title = STATUS.coins?.length ? `${STATUS.coins.length} coins : ${STATUS.coins.join(", ")}` : "";
+}
+
+// ---------- liste ----------
+function filtered() {
+  const now = Date.now() / 1000;
+  return SIG.filter(s => s.key === st.sel || ((!st.tf || s.tf === st.tf) && (!st.coin || s.coin === st.coin) && (st.tab === "live" ? s.out.result === "en cours" : s.out.result !== "en cours" && (!st.res || s.out.result === st.res))
+    && (!st.vote || (st.vote === "none" ? !s.vote : s.vote === st.vote)) && (!st.age || now - s.t <= +st.age)))
+    .sort((a, b) => b.t - a.t);
+}
+function renderList() {
+  renderTabs();
+  const r = filtered();
+  const w = r.filter(s => s.out.result === "win").length, l = r.filter(s => s.out.result === "loss").length;
+  const vy = r.filter(s => s.vote === "yes"), vyw = vy.filter(s => s.out.result === "win").length, vyl = vy.filter(s => s.out.result === "loss").length;
+  const nNew = SIG.filter(s => !seen.has(s.key)).length;
+  document.title = (nNew ? `(${nNew}) ` : "") + "Range dans le range";
+  $("#sum").innerHTML = `<b>${r.length}</b> signaux · ✓ <b>${w}</b> · ✗ <b>${l}</b>${w + l ? ` · réussite <b>${Math.round(w / (w + l) * 100)} %</b>` : ""}`
+    + (vy.length ? `<br>Tes « oui » : ✓ ${vyw} · ✗ ${vyl}${vyw + vyl ? ` (${Math.round(vyw / (vyw + vyl) * 100)} %)` : ""}` : "")
+    + (nNew ? `<br><span style="color:var(--new)">${nNew} nouveau${nNew > 1 ? "x" : ""}</span>` : "");
+  const now = Date.now() / 1000;
+  $("#list").innerHTML = r.map(s => `<div class="it ${st.sel === s.key ? "sel" : ""}" data-key="${s.key}">
+    <div><b>${s.coin}</b> ${s.tf} · <span class="${s.dir === "short" ? "loss" : "win"}">${s.dir}</span>${seen.has(s.key) ? "" : '<span class="badge-new">nouveau</span>'} ${s.vote === "yes" ? "👍" : s.vote === "no" ? "👎" : ""}</div>
+    <div class="${RES[s.out.result][1]}">${RES[s.out.result][0]}</div>
+    <div class="d">${dt(s.t)} · il y a ${ago(now - s.t)}</div>
+    <div class="d" style="text-align:right">petit range en ${s.side === "top" ? "haut" : "bas"}</div></div>`).join("")
+    || `<div class="hint" style="padding:12px">Aucun signal avec ces filtres.${st.tab === "live" ? " Les nouveaux setups apparaîtront ici automatiquement ; ceux qui sont terminés sont dans l'onglet Historique." : ""}</div>`;
+  return r;
+}
+$("#list").onclick = e => { const it = e.target.closest(".it"); if (it) select(it.dataset.key); };
+function refresh() {
+  const r = renderList();
+  if (!r.find(s => s.key === st.sel)) { if (r[0]) select(r[0].key); else { st.sel = null; clearChart(); } }
+}
+function clearChart() { if (chart) { chart.remove(); chart = null; } chartKey = null; $("#hdr").innerHTML = ""; $("#chart").innerHTML = '<div class="empty">Aucun signal</div>'; }
+
+// ---------- signal sélectionné ----------
+async function select(key, keepView) {
+  const s = SIG.find(x => x.key === key); if (!s) return;
+  st.sel = key;
+  if (!seen.has(key)) { seen.add(key); LS.set("rr-seen", [...seen]); }
+  renderList();
+  if (!keepView) document.querySelector(`.it[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
+  renderHeader(s);
+  const bars = await api("/api/chart/" + encodeURIComponent(key));
+  if (st.sel !== key) return;
+  draw(s, bars, keepView);
+}
+function renderHeader(s) {
+  const now = Date.now() / 1000;
+  $("#hdr").innerHTML = `<h1>${s.coin} · ${s.tf}</h1>
+    <div class="kv"><span>Signal</span><b>${dt(s.t)} <span class="hint">(il y a ${ago(now - s.t)})</span></b></div>
+    <div class="kv"><span>Direction</span><b class="${s.dir === "short" ? "loss" : "win"}">${s.dir.toUpperCase()} (petit range en ${s.side === "top" ? "haut" : "bas"})</b></div>
+    <div class="kv"><span>Objectif · invalidation</span><b>${px(s.target)} · ${px(s.stop)}</b></div>
+    <div class="kv"><span>Touches haut / bas</span><b>${s.touchesTop} / ${s.touchesBot}</b></div>
+    <div class="kv"><span>Résultat</span><b class="${RES[s.out.result][1]}">${RES[s.out.result][0]}${s.out.result === "en cours" ? ` depuis ${s.out.bars} bougies` : ` en ${s.out.bars} bougies`}</b></div>
+    <div class="right">
+      <button class="btn" id="refOne" title="Recharge les dernières bougies de ce graphique">↻ Rafraîchir</button>
+      <span class="hint">C'est le motif ?</span>
+      <button class="btn yes ${s.vote === "yes" ? "on" : ""}" data-v="yes">Oui</button>
+      <button class="btn no ${s.vote === "no" ? "on" : ""}" data-v="no">Non</button>
+    </div>`;
+  $("#hdr .right").onclick = e => { const b = e.target.closest("button[data-v]"); if (b) vote(s, b.dataset.v); };
+  $("#refOne").onclick = () => refreshOne(s.key);
+}
+async function vote(s, v) {
+  const nv = s.vote === v ? null : v;
+  s.vote = nv; renderHeader(s); renderList();
+  try { await api("/api/vote", { key: s.key, vote: nv }); } catch (e) { alert("Vote non enregistré : " + e.message); }
+}
+async function refreshOne(key) {
+  const b = $("#refOne"); b.disabled = true; b.textContent = "↻ …";
+  try {
+    const d = await api("/api/refresh", { key });
+    const i = SIG.findIndex(x => x.key === key); if (i >= 0) SIG[i] = d.signal;
+    renderList(); renderHeader(d.signal); draw(d.signal, d.chart, true);
+  } catch (e) { alert(e.message); b.disabled = false; b.textContent = "↻ Rafraîchir"; }
+}
+
+function draw(s, bars, keepView) {
+  const range = keepView && chart && chartKey === s.key ? chart.timeScale().getVisibleLogicalRange() : null;
+  if (chart) chart.remove();
+  $("#chart").innerHTML = "";
+  chartKey = s.key; chartUpdated = s.updatedAt;
+  if (!bars.length) { $("#chart").innerHTML = '<div class="empty">Pas de données</div>'; return; }
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  chart = LightweightCharts.createChart($("#chart"), {
+    autoSize: true,
+    layout: { background: { color: dark ? "#0f1216" : "#ffffff" }, textColor: dark ? "#7d8794" : "#6b7380" },
+    grid: { vertLines: { color: dark ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: dark ? "#1a1f27" : "#f0f1f4" } },
+    timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 }, crosshair: { mode: 0 },
+  });
+  const ser = chart.addBarSeries({ upColor: "#16a34a", downColor: dark ? "#e5e7eb" : "#111827", thinBars: false, openVisible: true });
+  ser.setData(bars.map(b => ({ time: tz(b[0]), open: b[1], high: b[2], low: b[3], close: b[4] })));
+  const seg = (t0, t1, p, color, w = 2, style = 0) => {
+    if (t1 <= t0) return;
+    const l = chart.addLineSeries({ color, lineWidth: w, lineStyle: style, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+    l.setData([{ time: tz(t0), value: p }, { time: tz(t1), value: p }]);
+  };
+  const last = bars[bars.length - 1][0];
+  const tEnd = s.out.t || last;
+  seg(s.tStart, tEnd, s.H, "#f59e0b"); seg(s.tStart, tEnd, s.L, "#f59e0b");
+  seg(s.tInner, s.t, s.ih, "#8b5cf6"); seg(s.tInner, s.t, s.il, "#8b5cf6");
+  seg(s.t, tEnd, s.target, "#16a34a", 1, 2); seg(s.t, tEnd, s.stop, "#dc2626", 1, 2);
+  ser.setMarkers([
+    { time: tz(s.t), position: s.dir === "short" ? "aboveBar" : "belowBar", color: "#2563eb", shape: s.dir === "short" ? "arrowDown" : "arrowUp", text: "signal" },
+    ...(s.out.t ? [{ time: tz(s.out.t), position: "inBar", color: s.out.result === "win" ? "#16a34a" : "#dc2626", shape: "circle", text: s.out.result === "win" ? "✓" : "✗" }] : []),
+  ]);
+  if (range) chart.timeScale().setVisibleLogicalRange(range); else chart.timeScale().fitContent();
+}
+
+// ---------- contrôles ----------
+for (const [id, k] of [["#fTf", "tf"], ["#fCoin", "coin"], ["#fRes", "res"], ["#fVote", "vote"], ["#fAge", "age"]]) {
+  $(id).value = st[k];
+  $(id).onchange = e => { st[k] = e.target.value; saveFilters(); refresh(); };
+}
+function saveFilters() { LS.set("rr-filters", { tab: st.tab, tf: st.tf, coin: st.coin, res: st.res, vote: st.vote, age: st.age }); }
+function renderTabs() {
+  const live = SIG.filter(s => s.out.result === "en cours").length;
+  $("#tabs").innerHTML = `<button data-v="live" class="${st.tab === "live" ? "on" : ""}">En cours<span class="n">${live}</span></button>`
+    + `<button data-v="hist" class="${st.tab === "hist" ? "on" : ""}">Historique<span class="n">${SIG.length - live}</span></button>`;
+  $("#fRes").disabled = st.tab === "live";
+}
+$("#tabs").onclick = e => { const b = e.target.closest("button"); if (!b) return; st.tab = b.dataset.v; st.sel = null; saveFilters(); renderTabs(); refresh(); };
+$("#scanAll").onclick = async () => { STATUS.running = true; renderStatus(); await api("/api/scan", {}); setTimeout(load, 1500); };
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey) return;
+  const r = filtered(), i = r.findIndex(s => s.key === st.sel), s = r[i];
+  if (["ArrowDown", "ArrowRight"].includes(e.key) && i < r.length - 1) { select(r[i + 1].key); e.preventDefault(); }
+  if (["ArrowUp", "ArrowLeft"].includes(e.key) && i > 0) { select(r[i - 1].key); e.preventDefault(); }
+  if (s && e.key.toLowerCase() === "o") vote(s, "yes");
+  if (s && e.key.toLowerCase() === "n") vote(s, "no");
+});
+$("#imp").onclick = () => $("#impFile").click();
+$("#impFile").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    let data = JSON.parse(await f.text());
+    if (data.signals) data = data.signals;
+    const r = await api("/api/import-votes", data);
+    alert(`${r.imported} jugement(s) importé(s)`); load();
+  } catch (err) { alert("Fichier invalide"); }
+  e.target.value = "";
+};
+
+load();
+setInterval(load, 20000);          // nouvelles données toutes les 20 s
+setInterval(renderStatus, 1000);   // compte à rebours du prochain scan
+</script>
+</body>
+</html>
