@@ -9,6 +9,8 @@ Outil de recherche visuelle des ranges : pour chaque coin, **4 graphiques côte 
   que garde Hyperliquid par timeframe).
 - Mise à jour en temps réel (WebSocket Hyperliquid).
 - Raccourcis : ↑ ↓ changer de coin · 1–4 agrandir un graphique · Échap revenir à la grille.
+- **Tiroir 1D · 1W · 1M** : onglet sur le bord droit (ou touche W), par-dessus les 4 graphiques, élargissable en tirant
+  son bord. Le 1W (semaines du lundi) et le 1M (mois calendaires) sont construits à partir des bougies journalières.
 - **Outils de dessin** : ligne horizontale (H), ligne de tendance (T), rectangle/range avec sa hauteur en % (R),
   position longue (L) et courte (S) avec objectif, stop, % et R:R, mesure % / prix / bougies / durée (M),
   6 couleurs, Suppr pour effacer. Un dessin apparaît sur les 4 timeframes du coin et il est enregistré

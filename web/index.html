@@ -57,6 +57,21 @@
   .tools .sw { min-width: 0; width: 16px; height: 16px; padding: 0; border-radius: 50%; background: var(--c); margin: 0 2px; }
   .tools .sw.on { outline: 2px solid var(--text); outline-offset: 1px; background: var(--c); }
   .tools .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  /* tiroir 1D / 1W / 1M, par-dessus les graphiques */
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: var(--dw, 48vw); max-width: calc(100vw - 40px); z-index: 20;
+    background: var(--bg); border-left: 1px solid var(--border); box-shadow: -12px 0 30px rgba(0,0,0,.35);
+    transform: translateX(100%); transition: transform .22s ease; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .drawer.dragging { transition: none; }
+  .drawer .tab { position: absolute; left: -22px; top: 50%; transform: translateY(-50%); width: 22px; padding: 10px 0; opacity: .8;
+    background: var(--panel); border: 1px solid var(--border); border-right: 0; border-radius: 8px 0 0 8px; cursor: ew-resize;
+    writing-mode: vertical-rl; text-orientation: mixed; font-weight: 700; font-size: 11px; color: var(--muted); text-align: center; user-select: none; touch-action: none; }
+  .drawer .tab:hover { color: var(--text); opacity: 1; }
+  .drawer .resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: ew-resize; touch-action: none; }
+  .drawer .dhead { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .drawer .dhead b { font-size: 14px; }
+  .drawer .dhead button { margin-left: auto; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; }
+  .drawer .dgrid { flex: 1; display: grid; grid-template-rows: 1fr 1fr 1fr; gap: 1px; background: var(--border); min-height: 0; }
   @media (max-width: 800px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
     aside { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -74,7 +89,7 @@
     </div>
     <div class="list" id="list"></div>
     <div class="search" style="border-top:1px solid var(--border);border-bottom:0">
-      <div class="hint">↑ ↓ coin · 1–4 agrandir · Échap grille · B barres/bougies · glisse à gauche pour l'historique<br>Dessins : H ligne · T tendance · R rectangle · L long · S short · M mesure · Suppr effacer. Un dessin apparaît sur les 4 timeframes.</div>
+      <div class="hint">↑ ↓ coin · 1–4 agrandir · Échap grille · B barres/bougies · glisse à gauche pour l'historique<br>W : tiroir 1D · 1W · 1M (onglet à droite).<br>Dessins : H ligne · T tendance · R rectangle · L long · S short · M mesure · Suppr effacer. Un dessin apparaît sur tous les timeframes.</div>
     </div>
   </aside>
   <main>
@@ -90,9 +105,18 @@
     <div class="grid" id="grid"></div>
   </main>
 </div>
+<div class="drawer" id="drawer">
+  <div class="tab" id="dTab" title="Ouvrir / fermer (W) — tire vers la gauche">1D · 1W · 1M</div>
+  <div class="resize" id="dResize" title="Élargir / réduire"></div>
+  <div class="dhead"><b id="dTitle">—</b><span class="hint">Daily · Weekly (lundi) · Monthly — tire le bord gauche pour élargir</span><button id="dClose" title="Fermer (W ou Échap)">✕ Fermer</button></div>
+  <div class="dgrid" id="dgrid"></div>
+</div>
 <script>
 const API = "https://api.hyperliquid.xyz/info", WS = "wss://api.hyperliquid.xyz/ws";
 const TFS = [{ tf: "15m", label: "15 min", sec: 900 }, { tf: "1h", label: "1 H", sec: 3600 }, { tf: "4h", label: "4 H", sec: 14400 }, { tf: "1d", label: "1 D", sec: 86400 }];
+// tiroir : le 1W et le 1M sont construits à partir des bougies journalières (semaines du lundi, mois calendaires, comme TradingView)
+const DTFS = [{ tf: "D1d", interval: "1d", label: "1 D", sec: 86400 }, { tf: "D1w", interval: "1d", agg: "w", label: "1 W", sec: 7 * 86400 },
+  { tf: "D1M", interval: "1d", agg: "M", label: "1 M", sec: 30 * 86400 }];
 const PAGE = 1000;      // bougies chargées à la fois (Hyperliquid garde les 5000 dernières par timeframe)
 const SHOW = 220;       // bougies visibles au départ
 const $ = s => document.querySelector(s);
@@ -153,30 +177,32 @@ $("#q").oninput = e => { st.q = e.target.value; renderList(); };
 $("#q").onkeydown = e => { if (e.key === "Enter") { const r = document.querySelector(".coin"); if (r) { selectCoin(r.dataset.c); e.target.blur(); } } };
 
 // ---------- graphiques ----------
+const cellHtml = (t, btn) => `<div class="cell" data-tf="${t.tf}">
+    <div class="lbl">${t.label}${btn}<span class="load"></span></div><div class="ch"></div><svg class="ov"></svg></div>`;
 function buildGrid() {
-  $("#grid").innerHTML = TFS.map((t, i) => `<div class="cell" data-tf="${t.tf}">
-    <div class="lbl">${t.label}<button data-i="${i}">agrandir</button><span class="load"></span></div><div class="ch"></div><svg class="ov"></svg></div>`).join("");
+  $("#grid").innerHTML = TFS.map((t, i) => cellHtml(t, `<button data-i="${i}">agrandir</button>`)).join("");
   $("#grid").onclick = e => { const b = e.target.closest(".lbl button"); if (b) toggleSolo(TFS[+b.dataset.i].tf); };
-  const d = dark();
-  for (const t of TFS) {
-    const el = document.querySelector(`.cell[data-tf="${t.tf}"] .ch`);
-    const chart = LightweightCharts.createChart(el, {
-      autoSize: true,
-      layout: { background: { color: d ? "#0f1216" : "#ffffff" }, textColor: d ? "#7d8794" : "#6b7380", fontSize: 11 },
-      grid: { vertLines: { color: d ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: d ? "#1a1f27" : "#f0f1f4" } },
-      timeScale: { timeVisible: t.sec < 86400, secondsVisible: false, rightOffset: 6, borderColor: d ? "#262c36" : "#e3e6eb", tickMarkFormatter: tickLabel },
-      localization: { locale: "fr-FR", timeFormatter: ts => localTime(ts, t.sec < 86400
-        ? { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" }
-        : { day: "2-digit", month: "short", year: "2-digit" }) },
-      rightPriceScale: { borderColor: d ? "#262c36" : "#e3e6eb" },
-      crosshair: { mode: 0 },
-    });
-    const ov = document.querySelector(`.cell[data-tf="${t.tf}"] .ov`);
-    panes[t.tf] = { ...t, chart, ov, ovHtml: "", series: null, bars: [], loading: false, done: false, gen: 0 };
-    ov.addEventListener("pointerdown", onDown);
-    el.addEventListener("pointerdown", onDown, true); // clic sur un dessin même quand l'outil curseur est actif
-    chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) loadOlder(t.tf); });
-  }
+  for (const t of TFS) createPane({ ...t, interval: t.tf });
+}
+function createPane(t) {
+  const d = dark(), cell = document.querySelector(`.cell[data-tf="${t.tf}"]`), el = cell.querySelector(".ch");
+  const intraday = t.sec < 86400;
+  const chart = LightweightCharts.createChart(el, {
+    autoSize: true,
+    layout: { background: { color: d ? "#0f1216" : "#ffffff" }, textColor: d ? "#7d8794" : "#6b7380", fontSize: 11 },
+    grid: { vertLines: { color: d ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: d ? "#1a1f27" : "#f0f1f4" } },
+    timeScale: { timeVisible: intraday, secondsVisible: false, rightOffset: 6, borderColor: d ? "#262c36" : "#e3e6eb", tickMarkFormatter: tickLabel },
+    localization: { locale: "fr-FR", timeFormatter: ts => localTime(ts, intraday
+      ? { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" }
+      : t.agg === "M" ? { month: "long", year: "numeric" } : { day: "2-digit", month: "short", year: "2-digit" }) },
+    rightPriceScale: { borderColor: d ? "#262c36" : "#e3e6eb" },
+    crosshair: { mode: 0 },
+  });
+  const ov = cell.querySelector(".ov");
+  panes[t.tf] = { ...t, chart, ov, ovHtml: "", series: null, bars: [], loading: false, done: false, gen: 0, coin: null };
+  ov.addEventListener("pointerdown", onDown);
+  el.addEventListener("pointerdown", onDown, true); // clic sur un dessin même quand l'outil curseur est actif
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) loadOlder(t.tf); });
 }
 function makeSeries(p) {
   if (p.series) p.chart.removeSeries(p.series);
@@ -190,16 +216,36 @@ function makeSeries(p) {
 // les bougies sont affichées à l'heure locale ; on garde l'heure UTC d'origine pour charger l'historique
 const toBar = c => { const t = Math.floor(c.t / 1000); return { time: t, utc: t, open: +c.o, high: +c.h, low: +c.l, close: +c.c }; };
 
+function bucketStart(utc, agg) {
+  const d = new Date(utc * 1000);
+  if (agg === "M") return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000;
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (d.getUTCDay() + 6) % 7) / 1000; // lundi
+}
+function aggregate(daily, agg) {
+  const out = [];
+  for (const b of daily) {
+    const t = bucketStart(b.utc, agg), last = out[out.length - 1];
+    if (last && last.time === t) { last.high = Math.max(last.high, b.high); last.low = Math.min(last.low, b.low); last.close = b.close; }
+    else out.push({ time: t, utc: t, open: b.open, high: b.high, low: b.low, close: b.close });
+  }
+  return out;
+}
 async function fetchBars(coin, tf, sec, endMs) {
   const raw = await post({ type: "candleSnapshot", req: { coin, interval: tf, startTime: endMs - PAGE * sec * 1000, endTime: endMs } });
   return Array.isArray(raw) ? raw.map(toBar) : [];
 }
 async function loadPane(tf) {
   const p = panes[tf], gen = ++p.gen, coin = st.coin;
-  p.bars = []; p.done = false; p.loading = true; setLoad(tf, "chargement…");
+  p.coin = coin; p.bars = []; p.done = !!p.agg; p.loading = true; setLoad(tf, "chargement…");
   if (p.series) p.series.setData([]);
   try {
-    const bars = await fetchBars(coin, tf, p.sec, Date.now());
+    let bars;
+    if (p.agg) {
+      // tout l'historique journalier disponible (jusqu'à 5000 jours), regroupé par semaine ou par mois
+      const raw = await post({ type: "candleSnapshot", req: { coin, interval: "1d", startTime: Date.now() - 5000 * 86400e3, endTime: Date.now() } });
+      p.daily = Array.isArray(raw) ? raw.map(toBar) : [];
+      bars = aggregate(p.daily, p.agg);
+    } else bars = await fetchBars(coin, p.interval, p.sec, Date.now());
     if (gen !== p.gen) return;
     p.bars = bars;
     makeSeries(p);
@@ -216,7 +262,7 @@ async function loadOlder(tf) {
   const gen = p.gen, coin = st.coin;
   try {
     const firstUtc = p.bars[0].utc;
-    const older = (await fetchBars(coin, tf, p.sec, firstUtc * 1000 - 1)).filter(b => b.utc < firstUtc);
+    const older = (await fetchBars(coin, p.interval, p.sec, firstUtc * 1000 - 1)).filter(b => b.utc < firstUtc);
     if (gen !== p.gen) return;
     if (!older.length) { p.done = true; setLoad(tf, "début de l'historique disponible"); setTimeout(() => setLoad(tf, ""), 2500); }
     else {
@@ -237,13 +283,15 @@ function selectCoin(coin) {
   renderList(); renderHeader();
   document.querySelector(`.coin[data-c="${CSS.escape(coin)}"]`)?.scrollIntoView({ block: "nearest" });
   for (const t of TFS) loadPane(t.tf);
+  if (drawerOpen()) for (const t of DTFS) loadPane(t.tf); // sinon chargé à l'ouverture du tiroir
+  $("#dTitle").textContent = coin;
   loadDrawings(coin);
   subscribe();
 }
 function toggleSolo(tf) {
   st.solo = st.solo === tf ? null : tf;
   $("#grid").classList.toggle("solo", !!st.solo);
-  document.querySelectorAll(".cell").forEach(c => {
+  document.querySelectorAll("#grid .cell").forEach(c => {
     c.classList.toggle("big", c.dataset.tf === st.solo);
     c.querySelector(".lbl button").textContent = c.dataset.tf === st.solo ? "grille" : "agrandir";
   });
@@ -251,8 +299,7 @@ function toggleSolo(tf) {
 function setMode(m) {
   st.mode = m; LS.set("mtf-mode", m);
   $("#mode").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === m));
-  for (const t of TFS) {
-    const p = panes[t.tf];
+  for (const p of Object.values(panes)) {
     if (!p.bars.length) continue;
     const vr = p.chart.timeScale().getVisibleLogicalRange();
     makeSeries(p);
@@ -269,16 +316,72 @@ function connect() {
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.channel !== "candle" || m.data.s !== st.coin) return;
-    const p = panes[m.data.i];
-    if (!p || !p.series || !p.bars.length) return;
-    const b = toBar(m.data), last = p.bars[p.bars.length - 1];
-    if (b.time < last.time) return;
-    if (b.time === last.time) p.bars[p.bars.length - 1] = b; else p.bars.push(b);
-    p.series.update(b);
+    const b = toBar(m.data);
+    for (const p of Object.values(panes)) {
+      if (p.interval !== m.data.i || !p.series || !p.bars.length || p.coin !== st.coin) continue;
+      if (p.agg) { liveAgg(p, b); continue; }
+      const last = p.bars[p.bars.length - 1];
+      if (b.time < last.time) continue;
+      const nb = { ...b };
+      if (b.time === last.time) p.bars[p.bars.length - 1] = nb; else p.bars.push(nb);
+      p.series.update(nb);
+    }
     if (m.data.i === "15m") { const mk = markets.find(x => x.coin === st.coin); if (mk) { mk.px = b.close; renderHeader(); } }
   };
 }
 setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"method":"ping"}'); }, 30000);
+// bougie journalière en direct → met à jour la semaine / le mois en cours
+function liveAgg(p, b) {
+  const dl = p.daily, last = dl[dl.length - 1];
+  if (!last || b.utc < last.utc) return;
+  if (b.utc === last.utc) dl[dl.length - 1] = b; else dl.push(b);
+  const t = bucketStart(b.utc, p.agg), inB = dl.filter(x => x.utc >= t);
+  const bar = { time: t, utc: t, open: inB[0].open, high: Math.max(...inB.map(x => x.high)), low: Math.min(...inB.map(x => x.low)), close: b.close };
+  if (p.bars[p.bars.length - 1].time === t) p.bars[p.bars.length - 1] = bar; else p.bars.push(bar);
+  p.series.update(bar);
+}
+
+// ---------- tiroir 1D / 1W / 1M ----------
+let drawerBuilt = false;
+const drawerOpen = () => $("#drawer").classList.contains("open");
+function setDrawer(open) {
+  if (open && !drawerBuilt) {
+    $("#dgrid").innerHTML = DTFS.map(t => cellHtml(t, "")).join("");
+    for (const t of DTFS) createPane(t);
+    if (st.mode) for (const t of DTFS) if (panes[t.tf].bars.length) makeSeries(panes[t.tf]);
+    drawerBuilt = true;
+  }
+  $("#drawer").classList.toggle("open", open);
+  if (open) { $("#dTitle").textContent = st.coin; for (const t of DTFS) if (panes[t.tf].coin !== st.coin) loadPane(t.tf); }
+}
+(() => {
+  const dr = $("#drawer");
+  try { const w = LS.get("mtf-drawer-w", null); if (w) dr.style.setProperty("--dw", w + "px"); } catch (e) {}
+  $("#dClose").onclick = () => setDrawer(false);
+  // tirer l'onglet ou le bord gauche : ouvre et règle la largeur ; simple clic sur l'onglet : ouvre / ferme
+  const drag = (handle, isTab) => handle.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    const x0 = e.clientX; let moved = false;
+    handle.setPointerCapture(e.pointerId);
+    const move = ev => {
+      if (Math.abs(ev.clientX - x0) > 4) moved = true;
+      if (!moved) return;
+      if (!drawerOpen()) setDrawer(true);
+      dr.classList.add("dragging");
+      const w = Math.min(window.innerWidth - 40, Math.max(260, window.innerWidth - ev.clientX));
+      dr.style.setProperty("--dw", w + "px");
+    };
+    const up = ev => {
+      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up);
+      dr.classList.remove("dragging");
+      if (!moved) { if (isTab) setDrawer(!drawerOpen()); return; }
+      const w = window.innerWidth - ev.clientX;
+      if (w < 200) setDrawer(false); else LS.set("mtf-drawer-w", Math.round(Math.max(260, w)));
+    };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+  });
+  drag($("#dTab"), true); drag($("#dResize"), false);
+})();
 function subscribe() {
   if (!ws || ws.readyState !== 1 || wsCoin === st.coin) return;
   for (const t of TFS) {
@@ -441,7 +544,11 @@ function renderOverlay(p) {
   s += "</g>";
   if (s !== p.ovHtml) { ov.innerHTML = s; p.ovHtml = s; }
 }
-function renderLoop() { for (const t of TFS) renderOverlay(panes[t.tf]); requestAnimationFrame(renderLoop); }
+function renderLoop() {
+  const dOpen = drawerOpen();
+  for (const p of Object.values(panes)) if (dOpen || p.tf[0] !== "D") renderOverlay(p);
+  requestAnimationFrame(renderLoop);
+}
 
 // --- souris : créer, sélectionner, déplacer ---
 function paneOf(el) { const c = el.closest(".cell"); return c ? panes[c.dataset.tf] : null; }
@@ -520,7 +627,8 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowDown" && i < rows.length - 1) { selectCoin(rows[i + 1]); e.preventDefault(); }
   if (e.key === "ArrowUp" && i > 0) { selectCoin(rows[i - 1]); e.preventDefault(); }
   if (/^[1-4]$/.test(e.key)) toggleSolo(TFS[+e.key - 1].tf);
-  if (e.key === "Escape") { if (dw.draft || dw.tool !== "cursor") { dw.draft = null; setTool("cursor"); return; } if (dw.sel) { dw.sel = null; return; } if (st.solo) toggleSolo(st.solo); }
+  if (e.key === "Escape") { if (dw.draft || dw.tool !== "cursor") { dw.draft = null; setTool("cursor"); return; } if (dw.sel) { dw.sel = null; return; } if (drawerOpen()) { setDrawer(false); return; } if (st.solo) toggleSolo(st.solo); }
+  if (e.key.toLowerCase() === "w") { setDrawer(!drawerOpen()); return; }
   if ((e.key === "Delete" || e.key === "Backspace") && dw.sel) { deleteSel(); e.preventDefault(); return; }
   const k = { h: "hline", t: "trend", r: "rect", l: "long", s: "short", m: "ruler" }[e.key.toLowerCase()];
   if (k) setTool(dw.tool === k ? "cursor" : k);
