@@ -101,7 +101,16 @@ const st = { coin: LS.get("mtf-coin", "BTC"), mode: LS.get("mtf-mode", "bars"), 
 let markets = [], topCoins = [], panes = {}, ws = null, wsCoin = null;
 
 const post = body => fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
-const tzOff = t => -new Date(t * 1000).getTimezoneOffset() * 60;   // décalage heure locale (s)
+// Les bougies gardent leur heure UTC (toujours croissante) ; seul l'affichage est converti en heure locale.
+// (Décaler les bougies elles-mêmes cassait le 15m et le 1H au passage à l'heure d'hiver : 2 h–3 h existe deux fois.)
+const localTime = (t, o) => new Date(t * 1000).toLocaleString("fr-FR", o);
+const T = LightweightCharts.TickMarkType || { Year: 0, Month: 1, DayOfMonth: 2, Time: 3, TimeWithSeconds: 4 };
+function tickLabel(t, type) {
+  if (type === T.Year) return localTime(t, { year: "numeric" });
+  if (type === T.Month) return localTime(t, { month: "short" });
+  if (type === T.DayOfMonth) return localTime(t, { day: "numeric" });
+  return localTime(t, { hour: "2-digit", minute: "2-digit" });
+}
 const fmtPx = v => v >= 1000 ? v.toLocaleString("fr-FR", { maximumFractionDigits: 1 }) : v >= 1 ? v.toLocaleString("fr-FR", { maximumFractionDigits: 4 }) : v.toPrecision(4);
 const fmtVol = v => v >= 1e9 ? (v / 1e9).toFixed(2) + " Md$" : v >= 1e6 ? (v / 1e6).toFixed(1) + " M$" : (v / 1e3).toFixed(0) + " k$";
 const prec = p => p >= 1000 ? 1 : p >= 100 ? 2 : p >= 1 ? 4 : p >= 0.01 ? 5 : 7;
@@ -155,7 +164,10 @@ function buildGrid() {
       autoSize: true,
       layout: { background: { color: d ? "#0f1216" : "#ffffff" }, textColor: d ? "#7d8794" : "#6b7380", fontSize: 11 },
       grid: { vertLines: { color: d ? "#1a1f27" : "#f0f1f4" }, horzLines: { color: d ? "#1a1f27" : "#f0f1f4" } },
-      timeScale: { timeVisible: t.sec < 86400, secondsVisible: false, rightOffset: 6, borderColor: d ? "#262c36" : "#e3e6eb" },
+      timeScale: { timeVisible: t.sec < 86400, secondsVisible: false, rightOffset: 6, borderColor: d ? "#262c36" : "#e3e6eb", tickMarkFormatter: tickLabel },
+      localization: { locale: "fr-FR", timeFormatter: ts => localTime(ts, t.sec < 86400
+        ? { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" }
+        : { day: "2-digit", month: "short", year: "2-digit" }) },
       rightPriceScale: { borderColor: d ? "#262c36" : "#e3e6eb" },
       crosshair: { mode: 0 },
     });
@@ -176,7 +188,7 @@ function makeSeries(p) {
   p.series.setData(p.bars);
 }
 // les bougies sont affichées à l'heure locale ; on garde l'heure UTC d'origine pour charger l'historique
-const toBar = c => { const t = Math.floor(c.t / 1000); return { time: t + tzOff(t), utc: t, open: +c.o, high: +c.h, low: +c.l, close: +c.c }; };
+const toBar = c => { const t = Math.floor(c.t / 1000); return { time: t, utc: t, open: +c.o, high: +c.h, low: +c.l, close: +c.c }; };
 
 async function fetchBars(coin, tf, sec, endMs) {
   const raw = await post({ type: "candleSnapshot", req: { coin, interval: tf, startTime: endMs - PAGE * sec * 1000, endTime: endMs } });
