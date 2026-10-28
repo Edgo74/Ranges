@@ -24,7 +24,7 @@
   .coin .d.up { color: var(--green); } .coin .d.down { color: var(--red); }
   .up { color: var(--green); } .down { color: var(--red); }
   main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  header { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 17px; }
   .px { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .grow { flex: 1; }
@@ -57,6 +57,21 @@
   .tools .sw { min-width: 0; width: 16px; height: 16px; padding: 0; border-radius: 50%; background: var(--c); margin: 0 2px; }
   .tools .sw.on { outline: 2px solid var(--text); outline-offset: 1px; background: var(--c); }
   .tools .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .side-tabs { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+  .side-tabs button { flex: 1; border: 0; background: none; color: var(--muted); padding: 5px; border-radius: 5px; cursor: pointer; font: inherit; font-weight: 600; }
+  .side-tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .side-tabs .n { font-weight: 400; color: var(--muted); margin-left: 3px; }
+  .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+  .fvg { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .fvg:hover { background: var(--bg); }
+  .fvg.sel { background: var(--bg); box-shadow: inset 3px 0 0 var(--blue); }
+  .fvg .d { font-size: 11px; color: var(--muted); }
+  .tf { font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 3px; margin-left: 4px; background: var(--border); color: var(--text); }
+  .tf.M { background: #7c3aed; color: #fff; } .tf.W { background: #2563eb; color: #fff; }
+  .fstat { font-size: 11px; color: var(--muted); }
+  .fstat b { color: var(--text); }
+  .fvgtoggle { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
   /* tiroir 1D / 1W / 1M, par-dessus les graphiques */
   .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: var(--dw, 48vw); max-width: calc(100vw - 40px); z-index: 20;
     background: var(--bg); border-left: 1px solid var(--border); box-shadow: -12px 0 30px rgba(0,0,0,.35);
@@ -84,12 +99,29 @@
 <div class="app">
   <aside>
     <div class="search">
-      <input id="q" placeholder="Chercher un coin (tous les perps Hyperliquid)…" autocomplete="off">
-      <div class="hint" id="listHint">Top 30 par volume 24 h sur Hyperliquid</div>
+      <div class="side-tabs" id="sideTabs"><button data-v="coins" class="on">Coins</button><button data-v="fvg">FVG</button></div>
     </div>
-    <div class="list" id="list"></div>
+    <div id="coinsPane" style="display:contents">
+      <div class="search">
+        <input id="q" placeholder="Chercher un coin (tous les perps Hyperliquid)…" autocomplete="off">
+        <div class="hint" id="listHint">Top 30 par volume 24 h sur Hyperliquid</div>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+    <div id="fvgPane" style="display:none">
+      <div class="search">
+        <div class="side-tabs" id="fvgTabs"><button data-v="intact" class="on">Intacts</button><button data-v="alerts">Alertes</button></div>
+        <div class="frow">
+          <select id="fTf"><option value="">D · W · M</option><option value="D">Daily</option><option value="W">Weekly</option><option value="M">Monthly</option></select>
+          <select id="fDir"><option value="">Haussiers + baissiers</option><option value="bull">Haussiers</option><option value="bear">Baissiers</option></select>
+        </div>
+        <input id="fq" placeholder="Filtrer par coin…" autocomplete="off">
+        <div class="fstat" id="fvgStat">Chargement…</div>
+      </div>
+      <div class="list" id="fvgList"></div>
+    </div>
     <div class="search" style="border-top:1px solid var(--border);border-bottom:0">
-      <div class="hint">↑ ↓ coin · 1–4 agrandir · Échap grille · B barres/bougies · glisse à gauche pour l'historique<br>W : tiroir 1D · 1W · 1M (onglet à droite).<br>Dessins : H ligne · T tendance · R rectangle · L long · S short · M mesure · Suppr effacer. Un dessin apparaît sur tous les timeframes.</div>
+      <div class="hint">↑ ↓ coin · 1–4 agrandir · Échap grille · B barres/bougies · glisse à gauche pour l'historique<br>W : tiroir 1D · 1W · 1M (onglet à droite). Onglet FVG en haut : FVG intacts + alertes.<br>Dessins : H ligne · T tendance · R rectangle · L long · S short · M mesure · Suppr effacer. Un dessin apparaît sur tous les timeframes.</div>
     </div>
   </aside>
   <main>
@@ -98,7 +130,8 @@
       <span class="px" id="price"></span>
       <span id="chg"></span>
       <span class="grow"></span>
-      <span class="live"><span class="dot" id="wsDot"></span><span id="wsTxt">connexion…</span></span>
+      <label class="fvgtoggle" title="Afficher les FVG intacts du coin sur les graphiques"><input type="checkbox" id="showFvg">FVG</label>
+      <span class="live" id="live" title="connexion…"><span class="dot" id="wsDot"></span><span id="wsTxt" hidden></span></span>
       <div class="tools" id="tools"></div>
       <div class="seg" id="mode"><button data-v="bars">Barres</button><button data-v="candles">Bougies</button></div>
     </header>
@@ -121,7 +154,8 @@ const PAGE = 1000;      // bougies chargées à la fois (Hyperliquid garde les 5
 const SHOW = 220;       // bougies visibles au départ
 const $ = s => document.querySelector(s);
 const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
-const st = { coin: LS.get("mtf-coin", "BTC"), mode: LS.get("mtf-mode", "bars"), solo: null, q: "" };
+const urlCoin = new URLSearchParams(location.search).get("coin");
+const st = { coin: urlCoin || LS.get("mtf-coin", "BTC"), mode: LS.get("mtf-mode", "bars"), solo: null, q: "" };
 let markets = [], topCoins = [], panes = {}, ws = null, wsCoin = null;
 
 const post = body => fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
@@ -286,6 +320,7 @@ function selectCoin(coin) {
   if (drawerOpen()) for (const t of DTFS) loadPane(t.tf); // sinon chargé à l'ouverture du tiroir
   $("#dTitle").textContent = coin;
   loadDrawings(coin);
+  fv.coinZones = []; loadCoinFvg(coin);
   subscribe();
 }
 function toggleSolo(tf) {
@@ -311,8 +346,8 @@ $("#mode").onclick = e => { const b = e.target.closest("button"); if (b) setMode
 // ---------- temps réel (WebSocket Hyperliquid) ----------
 function connect() {
   ws = new WebSocket(WS);
-  ws.onopen = () => { $("#wsDot").classList.add("on"); $("#wsTxt").textContent = "temps réel"; wsCoin = null; subscribe(); };
-  ws.onclose = () => { $("#wsDot").classList.remove("on"); $("#wsTxt").textContent = "reconnexion…"; setTimeout(connect, 3000); };
+  ws.onopen = () => { $("#wsDot").classList.add("on"); $("#live").title = "Temps réel : connecté"; wsCoin = null; subscribe(); };
+  ws.onclose = () => { $("#wsDot").classList.remove("on"); $("#live").title = "Temps réel : reconnexion…"; setTimeout(connect, 3000); };
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.channel !== "candle" || m.data.s !== st.coin) return;
@@ -539,6 +574,7 @@ function renderOverlay(p) {
   const ov = p.ov; if (!ov || !p.series || !p.bars.length) { if (ov && ov.innerHTML) ov.innerHTML = ""; return; }
   const W = p.chart.timeScale().width(), H = ov.clientHeight - p.chart.timeScale().height();
   let s = `<defs><clipPath id="clip-${p.tf}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs><g clip-path="url(#clip-${p.tf})">`;
+  if (fv.show) for (const f of fv.coinZones) s += fvgZoneSvg(p, f, W);
   for (const d of dw.items) s += d.type === "long" || d.type === "short" ? positionSvg(p, d) : shapeSvg(p, d, W);
   if (dw.draft) s += dw.draft.type === "long" || dw.draft.type === "short" ? positionSvg(p, dw.draft) : shapeSvg(p, dw.draft, W);
   s += "</g>";
@@ -620,9 +656,72 @@ function finishDraft() {
 }
 function addItem(d) { dw.items.push(d); dw.sel = d.id; saveDrawings(); setTool("cursor"); }
 
+// ---------- FVG (calculés par le serveur) ----------
+const TFL = { D: "daily", W: "weekly", M: "monthly" };
+const fv = { view: "intact", data: null, coinZones: [], show: LS.get("mtf-fvg-show", true), tf: "", dir: "", q: "" };
+function fvgZoneSvg(p, f, W) {
+  const x = X(p, f.t1), yt = Y(p, f.top), yb = Y(p, f.bot);
+  if (x == null || yt == null || yb == null || x > W) return "";
+  const c = f.dir === "bull" ? "#16a34a" : "#dc2626", l = Math.max(0, x), h = Math.max(1, yb - yt);
+  return `<rect x="${l}" y="${yt}" width="${W - l}" height="${h}" fill="${c}" fill-opacity=".13" stroke="${c}" stroke-opacity=".5" stroke-dasharray="3 3" pointer-events="none"/>`
+    + `<text x="${W - 6}" y="${yt + Math.min(h / 2, 9) + 4}" text-anchor="end" fill="${c}" font-size="10" font-weight="700" pointer-events="none">FVG ${f.tf}</text>`;
+}
+async function loadCoinFvg(coin) {
+  try { const d = await (await fetch("/api/fvg?coin=" + encodeURIComponent(coin))).json(); if (coin === st.coin) fv.coinZones = d.intact; }
+  catch (e) { fv.coinZones = []; }
+}
+async function loadFvgList() {
+  try { fv.data = await (await fetch("/api/fvg")).json(); renderFvg(); }
+  catch (e) { $("#fvgStat").textContent = "Serveur injoignable"; }
+}
+function renderFvg() {
+  const d = fv.data; if (!d) return;
+  const s = d.status, q = fv.q.trim().toUpperCase();
+  const load = s.ready ? `${s.coins} coins surveillés` : `chargement ${s.coinsLoaded}/${s.coins} coins…`;
+  $("#fvgStat").innerHTML = `${load} · Telegram ${s.telegram ? "<b>relié</b>" : "non relié"}`;
+  const keep = f => (!fv.tf || f.tf === fv.tf) && (!fv.dir || f.dir === fv.dir) && (!q || f.coin.toUpperCase().includes(q));
+  const day = t => new Date(t * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  const sc = $("#fvgList").scrollTop;
+  if (fv.view === "intact") {
+    const rows = d.intact.filter(keep);
+    $("#fvgList").innerHTML = rows.slice(0, 400).map(f => `<div class="fvg ${f.coin === st.coin ? "sel" : ""}" data-c="${f.coin}">
+      <span><b>${f.coin}</b><span class="tf ${f.tf}">${f.tf}</span> <span class="${f.dir === "bull" ? "up" : "down"}">${f.dir === "bull" ? "▲ haussier" : "▼ baissier"}</span></span>
+      <span>${f.dist == null ? "—" : f.dist.toFixed(2) + " %"}</span>
+      <span class="d">${fmtPx(f.bot)} → ${fmtPx(f.top)} · ${f.pct} %</span><span class="d">créé ${day(f.t)}</span></div>`).join("")
+      || '<div class="hint" style="padding:12px">Aucun FVG intact avec ces filtres.</div>';
+    $("#fvgStat").innerHTML += `<br><b>${rows.length}</b> FVG intacts · trié par distance au prix (le plus proche d'être retesté en haut)`;
+  } else {
+    const rows = d.alerts.filter(keep);
+    $("#fvgList").innerHTML = rows.map(a => `<div class="fvg" data-c="${a.coin}">
+      <span><b>${a.coin}</b><span class="tf ${a.tf}">${a.tf}</span> <span class="${a.dir === "bull" ? "up" : "down"}">${a.dir === "bull" ? "▲" : "▼"}</span></span>
+      <span class="d">${new Date(a.at * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+      <span class="d">${fmtPx(a.bot)} → ${fmtPx(a.top)} · touché à ${fmtPx(a.price)}</span><span class="d">créé ${day(a.t)}</span></div>`).join("")
+      || '<div class="hint" style="padding:12px">Pas encore d\'alerte. Elles arrivent au premier retour du prix sur un FVG suivi.</div>';
+  }
+  $("#fvgList").scrollTop = sc;
+}
+$("#sideTabs").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  $("#sideTabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  const isF = b.dataset.v === "fvg";
+  $("#coinsPane").style.display = isF ? "none" : "contents";
+  $("#fvgPane").style.display = isF ? "contents" : "none";
+  LS.set("mtf-side", b.dataset.v);
+  if (isF) loadFvgList();
+};
+$("#fvgTabs").onclick = e => { const b = e.target.closest("button"); if (!b) return; fv.view = b.dataset.v; $("#fvgTabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); renderFvg(); };
+$("#fTf").onchange = e => { fv.tf = e.target.value; renderFvg(); };
+$("#fDir").onchange = e => { fv.dir = e.target.value; renderFvg(); };
+$("#fq").oninput = e => { fv.q = e.target.value; renderFvg(); };
+$("#fvgList").onclick = e => { const r = e.target.closest(".fvg"); if (r) { selectCoin(r.dataset.c); renderFvg(); } };
+$("#showFvg").checked = fv.show;
+$("#showFvg").onchange = e => { fv.show = e.target.checked; LS.set("mtf-fvg-show", fv.show); };
+setInterval(() => { if ($("#fvgPane").style.display !== "none") loadFvgList(); loadCoinFvg(st.coin); }, 60000);
+if (LS.get("mtf-side", "coins") === "fvg") $('#sideTabs button[data-v="fvg"]').click();
+
 // ---------- clavier ----------
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey) return;
   const rows = [...document.querySelectorAll(".coin")].map(r => r.dataset.c), i = rows.indexOf(st.coin);
   if (e.key === "ArrowDown" && i < rows.length - 1) { selectCoin(rows[i + 1]); e.preventDefault(); }
   if (e.key === "ArrowUp" && i > 0) { selectCoin(rows[i - 1]); e.preventDefault(); }

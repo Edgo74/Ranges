@@ -19,6 +19,21 @@ Outil de recherche visuelle des ranges : pour chaque coin, **4 graphiques côte 
 Les bougies sont chargées directement par le navigateur depuis l'API publique Hyperliquid ;
 le serveur ne fait que servir la page derrière un mot de passe.
 
+## Alertes FVG (Telegram)
+
+Le serveur surveille en continu **tous les perps Hyperliquid** et repère les Fair Value Gaps **daily, weekly
+(semaines du lundi) et monthly (mois calendaires)** :
+
+- FVG haussier : bas de la 3e bougie au-dessus du haut de la 1re (zone entre les deux) ; baissier : l'inverse.
+- Tailles minimales : 0,5 % daily · 1 % weekly · 2 % monthly. Ancienneté max : 6 mois daily · 4 ans weekly/monthly.
+- **Alerte au premier retour du prix sur la zone** (une mèche suffit), une seule fois : le FVG est ensuite consommé.
+- Délai : prix vérifié toutes les 10 s, bougie du jour relue toutes les ~10 min (pour les mèches rapides).
+- Onglet **FVG** du site : FVG intacts triés par distance au prix, historique des alertes ; case « FVG » pour
+  afficher les zones sur les graphiques.
+
+Mise en route : variable `TELEGRAM_BOT_TOKEN` (token donné par @BotFather), puis envoyer `/start` au bot.
+Commandes du bot : `/status`, `/daily off|on`, `/weekly off|on`, `/monthly off|on`.
+
 ## Lancer en local
 
 ```bash
@@ -29,6 +44,6 @@ Aucune dépendance (Python 3.9+). Mot de passe : `APP_PASSWORD=... python3 serve
 
 ## Railway
 
-Déployé depuis ce repo. Variables : `APP_PASSWORD` et `DATA_DIR=/data` (le volume `/data` garde tes dessins).
+Déployé depuis ce repo. Variables : `APP_PASSWORD`, `DATA_DIR=/data` (le volume garde dessins, état des FVG et liaison Telegram) et `TELEGRAM_BOT_TOKEN`.
 
 L'ancien détecteur automatique de signaux est dans l'historique Git (commit `cefee1e`).
