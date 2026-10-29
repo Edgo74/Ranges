@@ -2,7 +2,7 @@
 
 Il suffit d'envoyer /start au bot : la conversation est enregistrée (DATA_DIR/telegram.json) et reçoit
 ensuite les alertes. Une fois reliée, le bot refuse les autres conversations.
-Commandes : /start (relier), /status (état), /daily off|on, /weekly off|on, /monthly off|on (couper un timeframe).
+Commandes : /start (relier), /status (état), /4h, /daily, /weekly, /monthly suivis de off|on (couper un timeframe).
 """
 import json, os, threading, time, urllib.parse, urllib.request
 
@@ -14,7 +14,7 @@ class Telegram:
         self.status_fn = status_fn
         saved = self._load()
         self.chat_id = chat_id or saved.get("chat_id")
-        self.muted = set(saved.get("muted", []))  # timeframes coupés : "D", "W", "M"
+        self.muted = set(saved.get("muted", []))  # timeframes coupés : "H4", "D", "W", "M"
         self.offset = 0
 
     def _load(self):
@@ -69,13 +69,13 @@ class Telegram:
                 self.chat_id = chat
                 self._save()
             self.send("✅ Alertes FVG activées ici.\nTu recevras un message au <b>premier retour</b> du prix sur un FVG "
-                      "daily, weekly ou monthly, sur tous les perps Hyperliquid.\n/status pour voir l'état · /daily off pour couper le daily "
-                      "(idem /weekly, /monthly).", chat)
+                      "daily, weekly ou monthly (tous les perps Hyperliquid) et 4h (30 coins les plus échangés).\n"
+                      "/status pour voir l'état · /4h off pour couper le 4h (idem /daily, /weekly, /monthly).", chat)
         elif cmd == "/status" and self.status_fn:
-            off = ", ".join({"D": "daily", "W": "weekly", "M": "monthly"}[k] for k in sorted(self.muted))
+            off = ", ".join({"H4": "4h", "D": "daily", "W": "weekly", "M": "monthly"}[k] for k in sorted(self.muted))
             self.send(self.status_fn() + (f"\nCoupé : {off}" if off else ""), chat)
-        elif cmd in ("/daily", "/weekly", "/monthly"):
-            tf = {"/daily": "D", "/weekly": "W", "/monthly": "M"}[cmd]
+        elif cmd in ("/4h", "/daily", "/weekly", "/monthly"):
+            tf = {"/4h": "H4", "/daily": "D", "/weekly": "W", "/monthly": "M"}[cmd]
             arg = text.split()[1].lower() if len(text.split()) > 1 else ""
             if arg not in ("on", "off"):
                 self.send(f"Utilise {cmd} on ou {cmd} off.", chat)

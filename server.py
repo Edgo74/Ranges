@@ -37,7 +37,7 @@ def status_text():
     n = sum(len(v) for v in watcher.intact.values())
     by = {k: sum(1 for v in watcher.intact.values() for f in v if f["tf"] == k) for k in RULES}
     load = "prêt" if st["ready"] else f"chargement {st['coinsLoaded']}/{st['coins']} coins"
-    return (f"📊 Surveillance FVG : {load}\n{n} FVG intacts (daily {by['D']} · weekly {by['W']} · monthly {by['M']})\n"
+    return (f"📊 Surveillance FVG : {load}\n{n} FVG intacts (4h {by['H4']} · daily {by['D']} · weekly {by['W']} · monthly {by['M']})\n"
             f"{len(watcher.alerts)} alerte(s) envoyée(s)")
 
 

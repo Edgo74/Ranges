@@ -6,6 +6,7 @@ Un FVG se forme sur 3 bougies clôturées qui se suivent :
 On alerte UNE fois, au premier contact (une mèche suffit) après la création. Ensuite le FVG est consommé.
 
 Weekly (semaines du lundi) et monthly (mois calendaires) sont construits à partir des bougies journalières.
+Le 4h utilise les bougies 4h (affiché sur le site pour tous les coins ; alerte Telegram seulement pour le top 30 volume).
 Le contact est vu de deux façons : prix en direct toutes les 10 s, et bougie du jour (haut/bas) relue toutes les
 ~10 min par coin, pour ne pas rater une mèche rapide.
 """
@@ -14,11 +15,14 @@ import datetime, json, os, threading, time, traceback, urllib.request
 HL = "https://api.hyperliquid.xyz/info"
 DAY = 86400
 RULES = {  # taille minimale de la zone (%) et ancienneté maximale (jours)
+    "H4": {"min_pct": 1.0, "max_age": 14, "label": "4h"},
     "D": {"min_pct": 0.5, "max_age": 183, "label": "daily"},
     "W": {"min_pct": 1.0, "max_age": 4 * 365, "label": "weekly"},
     "M": {"min_pct": 2.0, "max_age": 4 * 365, "label": "monthly"},
 }
 REFRESH_EVERY = 600     # bougies journalières relues toutes les 10 min par coin
+H4_REFRESH_EVERY = 1800 # bougies 4h relues toutes les 30 min par coin (le contact est vu en direct par le prix)
+H4_TELEGRAM_TOP = 30    # alertes Telegram 4h seulement pour les 30 coins les plus échangés
 MIDS_EVERY = 10         # prix en direct toutes les 10 s
 
 
@@ -43,7 +47,7 @@ def hl(body, weight=20):
             except Exception:
                 time.sleep(2 + 3 * i)
         n = len(out) if isinstance(out, list) else 0
-        _next_call[0] = time.time() + (weight + n / 60) * 60 / 900  # ~900 / min, marge pour le reste
+        _next_call[0] = time.time() + (weight + n / 60) * 60 / 1050  # ~1050 / min, sous la limite de 1200
         return out
 
 
@@ -78,7 +82,7 @@ def aggregate(daily, kind):
 
 
 def period_end(t, kind):
-    return t + DAY if kind == "D" else t + 7 * DAY if kind == "W" else next_month(t)
+    return t + 4 * 3600 if kind == "H4" else t + DAY if kind == "D" else t + 7 * DAY if kind == "W" else next_month(t)
 
 
 def find_fvgs(bars, kind, now):
@@ -104,9 +108,9 @@ def find_fvgs(bars, kind, now):
     return out
 
 
-def first_touch(f, daily):
-    """Premier jour (bougie journalière, y compris celle en cours) qui touche la zone après sa création."""
-    for b in daily:
+def first_touch(f, bars):
+    """Première bougie (y compris celle en cours) qui touche la zone après sa création."""
+    for b in bars:
         if b["t"] < f["after"]:
             continue
         if (f["dir"] == "bull" and b["l"] <= f["top"]) or (f["dir"] == "bear" and b["h"] >= f["bot"]):
@@ -126,8 +130,12 @@ class FVGWatcher:
         self.site_url = site_url.rstrip("/")
         self.lock = threading.Lock()
         self.daily = {}          # coin -> bougies journalières
-        self.refreshed = {}      # coin -> dernière relecture
-        self.intact = {}         # coin -> [FVG intacts]
+        self.h4 = {}             # coin -> bougies 4h
+        self.refreshed = {}      # coin -> dernière relecture du daily
+        self.refreshed_h4 = {}   # coin -> dernière relecture du 4h
+        self._dwm, self._h4 = {}, {}   # coin -> FVG intacts (daily/weekly/monthly) et (4h)
+        self.intact = {}         # coin -> [FVG intacts] (les deux réunis)
+        self.top = set()         # top 30 volume (alertes Telegram 4h)
         self.mids = {}
         self.coins = []
         self.status = {"startedAt": int(time.time()), "ready": False, "coinsLoaded": 0, "coins": 0, "lastMids": None, "error": None}
@@ -163,9 +171,11 @@ class FVGWatcher:
         threading.Thread(target=self._mids_loop, daemon=True).start()
 
     def _coins(self):
-        meta = hl({"type": "meta"}, weight=20)
-        if meta:
-            self.coins = [u["name"] for u in meta["universe"] if not u.get("isDelisted")]
+        res = hl({"type": "metaAndAssetCtxs"}, weight=20)
+        if res:
+            live = [(u["name"], float(c.get("dayNtlVlm") or 0)) for u, c in zip(res[0]["universe"], res[1]) if not u.get("isDelisted")]
+            self.coins = [n for n, _ in live]
+            self.top = {n for n, _ in sorted(live, key=lambda x: -x[1])[:H4_TELEGRAM_TOP]}
             self.status["coins"] = len(self.coins)
         return self.coins
 
@@ -176,11 +186,13 @@ class FVGWatcher:
                 if time.time() - last_meta > 3600 or not self.coins:
                     self._coins()
                     last_meta = time.time()
-                # le coin le moins récemment relu passe en premier
-                todo = sorted(self.coins, key=lambda c: self.refreshed.get(c, 0))
-                coin = todo[0] if todo else None
-                if coin and time.time() - self.refreshed.get(coin, 0) >= REFRESH_EVERY:
-                    self._refresh(coin)
+                # la relecture la plus en retard passe en premier (daily toutes les 10 min, 4h toutes les 30 min)
+                now = time.time()
+                jobs = [(now - self.refreshed.get(c, 0) - REFRESH_EVERY, "D", c) for c in self.coins] + \
+                       [(now - self.refreshed_h4.get(c, 0) - H4_REFRESH_EVERY, "H4", c) for c in self.coins]
+                late = max(jobs) if jobs else None
+                if late and late[0] >= 0:
+                    (self._refresh if late[1] == "D" else self._refresh_h4)(late[2])
                     self.save()
                 else:
                     time.sleep(2)
@@ -192,7 +204,8 @@ class FVGWatcher:
     def _refresh(self, coin):
         now = int(time.time())
         have = self.daily.get(coin)
-        start = (have[-3]["t"] if have and len(have) > 3 else now - 5000 * DAY) * 1000
+        # 4 ans + 3 mois suffisent : le plus ancien FVG suivi (weekly / monthly) a 4 ans
+        start = (have[-3]["t"] if have and len(have) > 3 else now - (RULES["M"]["max_age"] + 100) * DAY) * 1000
         raw = hl({"type": "candleSnapshot", "req": {"coin": coin, "interval": "1d", "startTime": int(start), "endTime": now * 1000}})
         self.refreshed[coin] = time.time()
         if not isinstance(raw, list) or not raw:
@@ -203,29 +216,53 @@ class FVGWatcher:
         daily = [merged[t] for t in sorted(merged)]
         self.daily[coin] = daily
         if not have:
-            self.status["coinsLoaded"] = len(self.daily)
-            if len(self.daily) >= len(self.coins):
-                self.status["ready"] = True
+            self._loaded()
         self._evaluate(coin, daily, now)
+
+    def _loaded(self):
+        n = min(len(self.daily), len(self.h4))
+        self.status["coinsLoaded"] = n
+        if n >= len(self.coins):
+            self.status["ready"] = True
+
+    def _refresh_h4(self, coin):
+        now = int(time.time())
+        have = self.h4.get(coin)
+        start = (have[-3]["t"] if have and len(have) > 3 else now - 20 * DAY) * 1000
+        raw = hl({"type": "candleSnapshot", "req": {"coin": coin, "interval": "4h", "startTime": int(start), "endTime": now * 1000}})
+        self.refreshed_h4[coin] = time.time()
+        if not isinstance(raw, list) or not raw:
+            return
+        merged = {b["t"]: b for b in (have or [])}
+        merged.update({c["t"] // 1000: {"t": c["t"] // 1000, "o": float(c["o"]), "h": float(c["h"]), "l": float(c["l"]), "c": float(c["c"])} for c in raw})
+        bars = [merged[t] for t in sorted(merged) if t >= now - 20 * DAY]
+        self.h4[coin] = bars
+        if not have:
+            self._loaded()
+        self._check(coin, find_fvgs(bars, "H4", now), bars, self._h4)
 
     def _evaluate(self, coin, daily, now):
         fvgs = find_fvgs(daily, "D", now) + find_fvgs(aggregate(daily, "W"), "W", now) + find_fvgs(aggregate(daily, "M"), "M", now)
+        self._check(coin, fvgs, daily, self._dwm)
+
+    def _check(self, coin, fvgs, bars, store):
         intact = []
         for f in fvgs:
             k = self.key(coin, f)
             if k in self.alerted:
                 continue
-            touched = first_touch(f, daily)
+            touched = first_touch(f, bars)
             if touched is None:
                 intact.append(f)
                 self.seen.add(k)
             elif k in self.seen:
                 # vu intact auparavant, touché depuis → premier retour
-                self._alert(coin, f, k, daily[-1]["c"], touched)
+                self._alert(coin, f, k, bars[-1]["c"], touched)
             else:
                 self.alerted.add(k)  # déjà touché avant qu'on le surveille : ce n'est plus un « premier retour »
         with self.lock:
-            self.intact[coin] = intact
+            store[coin] = intact
+            self.intact[coin] = self._dwm.get(coin, []) + self._h4.get(coin, [])
 
     def _mids_loop(self):
         while True:
@@ -255,16 +292,19 @@ class FVGWatcher:
             if k in self.alerted:
                 return
             self.alerted.add(k)
-            self.intact[coin] = [x for x in self.intact.get(coin, []) if self.key(coin, x) != k]
-            a = {"coin": coin, **f, "price": px, "at": int(time.time()), "touchedDay": touched_at}
+            for store in (self._dwm, self._h4, self.intact):
+                store[coin] = [x for x in store.get(coin, []) if self.key(coin, x) != k]
+            # le 4h n'est envoyé sur Telegram que pour le top 30 volume (sinon trop de messages)
+            notify = f["tf"] != "H4" or coin in self.top
+            a = {"coin": coin, **f, "price": px, "at": int(time.time()), "touchedDay": touched_at, "telegram": notify}
             self.alerts.insert(0, a)
         print(f"FVG {coin} {RULES[f['tf']]['label']} {f['dir']} touché à {px}", flush=True)
-        if self.telegram and f["tf"] not in self.telegram.muted:
+        if notify and self.telegram and f["tf"] not in self.telegram.muted:
             self.telegram.send(self.message(a))
 
     def message(self, a):
         up = a["dir"] == "bull"
-        created = datetime.datetime.utcfromtimestamp(a["t"]).strftime("%d/%m/%Y" if a["tf"] == "D" else "%m/%Y" if a["tf"] == "M" else "sem. du %d/%m/%Y")
+        created = datetime.datetime.utcfromtimestamp(a["t"]).strftime({"H4": "%d/%m/%Y %H:%M UTC", "D": "%d/%m/%Y", "M": "%m/%Y"}.get(a["tf"], "sem. du %d/%m/%Y"))
         txt = (f"{'🟢' if up else '🔴'} <b>{a['coin']}</b> — premier retour sur un FVG <b>{RULES[a['tf']]['label']}</b> "
                f"{'haussier' if up else 'baissier'}\n"
                f"Zone {fmt_px(a['bot'])} → {fmt_px(a['top'])} ({a['pct']} %)\n"

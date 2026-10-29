@@ -68,7 +68,7 @@
   .fvg.sel { background: var(--bg); box-shadow: inset 3px 0 0 var(--blue); }
   .fvg .d { font-size: 11px; color: var(--muted); }
   .tf { font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 3px; margin-left: 4px; background: var(--border); color: var(--text); }
-  .tf.M { background: #7c3aed; color: #fff; } .tf.W { background: #2563eb; color: #fff; }
+  .tf.M { background: #7c3aed; color: #fff; } .tf.W { background: #2563eb; color: #fff; } .tf.H4 { background: #0d9488; color: #fff; }
   .fstat { font-size: 11px; color: var(--muted); }
   .fstat b { color: var(--text); }
   .fvgtoggle { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
@@ -112,7 +112,7 @@
       <div class="search">
         <div class="side-tabs" id="fvgTabs"><button data-v="intact" class="on">Intacts</button><button data-v="alerts">Alertes</button></div>
         <div class="frow">
-          <select id="fTf"><option value="">D · W · M</option><option value="D">Daily</option><option value="W">Weekly</option><option value="M">Monthly</option></select>
+          <select id="fTf"><option value="">4h · D · W · M</option><option value="H4">4h</option><option value="D">Daily</option><option value="W">Weekly</option><option value="M">Monthly</option></select>
           <select id="fDir"><option value="">Haussiers + baissiers</option><option value="bull">Haussiers</option><option value="bear">Baissiers</option></select>
         </div>
         <input id="fq" placeholder="Filtrer par coin…" autocomplete="off">
@@ -657,14 +657,15 @@ function finishDraft() {
 function addItem(d) { dw.items.push(d); dw.sel = d.id; saveDrawings(); setTool("cursor"); }
 
 // ---------- FVG (calculés par le serveur) ----------
-const TFL = { D: "daily", W: "weekly", M: "monthly" };
+const TFL = { H4: "4h", D: "daily", W: "weekly", M: "monthly" };
+const TFS_SHORT = { H4: "4h", D: "D", W: "W", M: "M" };
 const fv = { view: "intact", data: null, coinZones: [], show: LS.get("mtf-fvg-show", true), tf: "", dir: "", q: "" };
 function fvgZoneSvg(p, f, W) {
   const x = X(p, f.t1), yt = Y(p, f.top), yb = Y(p, f.bot);
   if (x == null || yt == null || yb == null || x > W) return "";
   const c = f.dir === "bull" ? "#16a34a" : "#dc2626", l = Math.max(0, x), h = Math.max(1, yb - yt);
   return `<rect x="${l}" y="${yt}" width="${W - l}" height="${h}" fill="${c}" fill-opacity=".13" stroke="${c}" stroke-opacity=".5" stroke-dasharray="3 3" pointer-events="none"/>`
-    + `<text x="${W - 6}" y="${yt + Math.min(h / 2, 9) + 4}" text-anchor="end" fill="${c}" font-size="10" font-weight="700" pointer-events="none">FVG ${f.tf}</text>`;
+    + `<text x="${W - 6}" y="${yt + Math.min(h / 2, 9) + 4}" text-anchor="end" fill="${c}" font-size="10" font-weight="700" pointer-events="none">FVG ${TFS_SHORT[f.tf] || f.tf}</text>`;
 }
 async function loadCoinFvg(coin) {
   try { const d = await (await fetch("/api/fvg?coin=" + encodeURIComponent(coin))).json(); if (coin === st.coin) fv.coinZones = d.intact; }
@@ -685,7 +686,7 @@ function renderFvg() {
   if (fv.view === "intact") {
     const rows = d.intact.filter(keep);
     $("#fvgList").innerHTML = rows.slice(0, 400).map(f => `<div class="fvg ${f.coin === st.coin ? "sel" : ""}" data-c="${f.coin}">
-      <span><b>${f.coin}</b><span class="tf ${f.tf}">${f.tf}</span> <span class="${f.dir === "bull" ? "up" : "down"}">${f.dir === "bull" ? "▲ haussier" : "▼ baissier"}</span></span>
+      <span><b>${f.coin}</b><span class="tf ${f.tf}">${TFS_SHORT[f.tf] || f.tf}</span> <span class="${f.dir === "bull" ? "up" : "down"}">${f.dir === "bull" ? "▲ haussier" : "▼ baissier"}</span></span>
       <span>${f.dist == null ? "—" : f.dist.toFixed(2) + " %"}</span>
       <span class="d">${fmtPx(f.bot)} → ${fmtPx(f.top)} · ${f.pct} %</span><span class="d">créé ${day(f.t)}</span></div>`).join("")
       || '<div class="hint" style="padding:12px">Aucun FVG intact avec ces filtres.</div>';
@@ -693,7 +694,7 @@ function renderFvg() {
   } else {
     const rows = d.alerts.filter(keep);
     $("#fvgList").innerHTML = rows.map(a => `<div class="fvg" data-c="${a.coin}">
-      <span><b>${a.coin}</b><span class="tf ${a.tf}">${a.tf}</span> <span class="${a.dir === "bull" ? "up" : "down"}">${a.dir === "bull" ? "▲" : "▼"}</span></span>
+      <span><b>${a.coin}</b><span class="tf ${a.tf}">${TFS_SHORT[a.tf] || a.tf}</span> <span class="${a.dir === "bull" ? "up" : "down"}">${a.dir === "bull" ? "▲" : "▼"}</span>${a.telegram === false ? ' <span class="d" title="4h hors top 30 : pas envoyé sur Telegram">· site</span>' : ""}</span>
       <span class="d">${new Date(a.at * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
       <span class="d">${fmtPx(a.bot)} → ${fmtPx(a.top)} · touché à ${fmtPx(a.price)}</span><span class="d">créé ${day(a.t)}</span></div>`).join("")
       || '<div class="hint" style="padding:12px">Pas encore d\'alerte. Elles arrivent au premier retour du prix sur un FVG suivi.</div>';

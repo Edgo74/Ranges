@@ -21,18 +21,21 @@ le serveur ne fait que servir la page derrière un mot de passe.
 
 ## Alertes FVG (Telegram)
 
-Le serveur surveille en continu **tous les perps Hyperliquid** et repère les Fair Value Gaps **daily, weekly
+Le serveur surveille en continu **tous les perps Hyperliquid** et repère les Fair Value Gaps **4h, daily, weekly
 (semaines du lundi) et monthly (mois calendaires)** :
 
 - FVG haussier : bas de la 3e bougie au-dessus du haut de la 1re (zone entre les deux) ; baissier : l'inverse.
-- Tailles minimales : 0,5 % daily · 1 % weekly · 2 % monthly. Ancienneté max : 6 mois daily · 4 ans weekly/monthly.
+- Tailles minimales : 1 % 4h · 0,5 % daily · 1 % weekly · 2 % monthly. Ancienneté max : 2 semaines 4h · 6 mois daily ·
+  4 ans weekly/monthly.
+- 4h : visible sur le site pour tous les coins, mais **alerte Telegram seulement pour les 30 coins les plus échangés**
+  (sinon ~70 messages par jour).
 - **Alerte au premier retour du prix sur la zone** (une mèche suffit), une seule fois : le FVG est ensuite consommé.
 - Délai : prix vérifié toutes les 10 s, bougie du jour relue toutes les ~10 min (pour les mèches rapides).
 - Onglet **FVG** du site : FVG intacts triés par distance au prix, historique des alertes ; case « FVG » pour
   afficher les zones sur les graphiques.
 
 Mise en route : variable `TELEGRAM_BOT_TOKEN` (token donné par @BotFather), puis envoyer `/start` au bot.
-Commandes du bot : `/status`, `/daily off|on`, `/weekly off|on`, `/monthly off|on`.
+Commandes du bot : `/status`, `/4h off|on`, `/daily off|on`, `/weekly off|on`, `/monthly off|on`.
 
 ## Lancer en local
 
